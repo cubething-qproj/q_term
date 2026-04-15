@@ -1,0 +1,37 @@
+[package]
+name = "q_term"
+version = "0.1.0"
+edition = "2024"
+license = "MIT OR Apache-2.0"
+repository = "https://github.com/cubething-qproj/q_term"
+
+[dependencies]
+bevy = "0.18"
+bevy-inspector-egui = "0.36.0"
+bevy_dylib={optional=true, version="0.18.0"}
+clap = { version = "4.5.53", features = ["derive"] }
+cosmic-text = "0.16.0"
+regex = "1.12.2"
+shlex = "1.3.0"
+smallvec = "1.15.1"
+smol_str = "0.2.2"
+strum = { version = "0.27.2", features = ["derive"] }
+thiserror = "2.0.17"
+tiny_bail = "0.7.0"
+variadics_please = "1.1.0"
+serde = { version = "1.0.228", features = ["derive"] }
+itertools = "0.14.0"
+anstyle-parse = "1.0.0"
+anstyle = "1.0.13"
+
+[dev-dependencies]
+q_test_harness = {path = "../../q_test_harness/main", version="^0.1"}
+
+[features]
+dylib= ["bevy/dynamic_linking", "dep:bevy_dylib"]
+
+[lints]
+rust.unexpected_cfgs = { level = "warn", check-cfg = ["cfg(bevy_lint)"] }
+clippy.too_many_arguments = "allow"
+clippy.type_complexity = "allow"
+clippy.nonstandard_macro_braces = "warn"

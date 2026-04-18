@@ -1,0 +1,23 @@
+name: CI
+on:
+    push:
+        branches: ["main", "release/*"]
+    pull_request:
+
+jobs:
+    ci:
+        permissions:
+            contents: write
+            pull-requests: write
+            issues: write
+        uses: cubething-qproj/infra/.github/workflows/downstream-ci.yml@main
+        with:
+            caller-event-name: ${{ github.event_name }}
+            caller-head-ref: ${{ github.head_ref }}
+            caller-pr-number: ${{ github.event.pull_request.number && format('{0}', github.event.pull_request.number) || '' }}
+        secrets:
+            DISPATCH_TOKEN: ${{ secrets.DISPATCH_TOKEN }}
+
+    coverage:
+        needs: ci
+        uses: cubething-qproj/infra/.github/workflows/downstream-codecov.yml@main

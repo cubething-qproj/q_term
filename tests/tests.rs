@@ -39,7 +39,7 @@ pub fn get_test_app() -> App {
         TextureAtlasPlugin,
         ImagePlugin::default(),
         TexturePlugin,
-        TerminalPlugin,
+        TerminalPlugin::default(),
     ));
     app.insert_resource(TestRunnerTimeout(2.));
     app

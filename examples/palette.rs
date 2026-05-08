@@ -17,7 +17,7 @@ fn main() {
             }),
             ..Default::default()
         }),
-        TerminalPlugin,
+        TerminalPlugin::default(),
     ));
     app.add_systems(Startup, setup);
     app.run();

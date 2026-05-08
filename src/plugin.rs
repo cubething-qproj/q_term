@@ -1,3 +1,4 @@
+use bevy::ecs::schedule::{InternedScheduleLabel, ScheduleLabel};
 use bevy::ui::ui_layout_system;
 
 use crate::prelude::*;
@@ -20,35 +21,74 @@ pub enum TerminalSystems {
     RenderPrep,
 }
 
-/// The primary plugin for q_term
-#[derive(Default, Debug)]
-pub struct TerminalPlugin;
+/// The primary plugin for q_term.
+///
+/// Routes [`TerminalSystems`] sets across three configurable schedules:
+/// `pre` hosts [`TerminalSystems::Input`], `update` hosts the
+/// [`TerminalSystems::Measure`] → [`TerminalSystems::Process`] chain,
+/// and `post` hosts [`TerminalSystems::RenderPrep`] (after
+/// `ui_layout_system`). [`Default`] selects `(PreUpdate, Update,
+/// PostUpdate)`.
+#[derive(Debug)]
+pub struct TerminalPlugin {
+    /// Schedule hosting [`TerminalSystems::Input`].
+    pub pre: InternedScheduleLabel,
+    /// Schedule hosting the [`TerminalSystems::Measure`] →
+    /// [`TerminalSystems::Process`] chain.
+    pub update: InternedScheduleLabel,
+    /// Schedule hosting [`TerminalSystems::RenderPrep`].
+    pub post: InternedScheduleLabel,
+}
+
+impl TerminalPlugin {
+    /// Construct a [`TerminalPlugin`] that routes its sets across the
+    /// given schedules.
+    pub fn new(
+        pre: impl ScheduleLabel,
+        update: impl ScheduleLabel,
+        post: impl ScheduleLabel,
+    ) -> Self {
+        Self {
+            pre: pre.intern(),
+            update: update.intern(),
+            post: post.intern(),
+        }
+    }
+}
+
+impl Default for TerminalPlugin {
+    fn default() -> Self {
+        Self::new(PreUpdate, Update, PostUpdate)
+    }
+}
+
 impl Plugin for TerminalPlugin {
     fn build(&self, app: &mut App) {
         app.add_message::<TermMsg>();
-        // no matter how we structure this - before or after ui layout -
-        // there will be a frame delay between updating the terminal size
-        // and laying out the ui due to char width measurement
+
+        app.configure_sets(self.pre, TerminalSystems::Input);
         app.configure_sets(
-            PostUpdate,
-            (
-                TerminalSystems::Measure,
-                TerminalSystems::Process,
-                TerminalSystems::RenderPrep,
-            )
-                .chain()
-                .after(ui_layout_system),
+            self.update,
+            (TerminalSystems::Measure, TerminalSystems::Process).chain(),
         );
+        app.configure_sets(
+            self.post,
+            TerminalSystems::RenderPrep.after(ui_layout_system),
+        );
+
         app.add_systems(
-            PostUpdate,
+            self.update,
             (
                 update_font.in_set(TerminalSystems::Measure),
                 update_char_width.in_set(TerminalSystems::Measure),
                 resize.in_set(TerminalSystems::Measure),
                 handle_messages.in_set(TerminalSystems::Process),
                 scroll_viewport.in_set(TerminalSystems::Process),
-                refresh_ui.in_set(TerminalSystems::RenderPrep),
             ),
+        );
+        app.add_systems(
+            self.post,
+            refresh_ui.in_set(TerminalSystems::RenderPrep),
         );
     }
 }

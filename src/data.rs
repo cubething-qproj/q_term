@@ -533,6 +533,164 @@ mod events {
             Self::new(term_id, TermMsgKind::Write(spans))
         }
     }
+
+    /// Request to write characters/spans into a terminal's buffer.
+    ///
+    /// Stub introduced ahead of the typed-message migration; no
+    /// producer or consumer wired up yet. See `TermMsg` for the
+    /// pipeline still in use.
+    #[derive(Message, Debug, Clone, Reflect)]
+    pub struct TermInputMsg {
+        /// Target terminal entity.
+        pub target: Entity,
+        /// Spans to write into the buffer.
+        pub writes: Vec<TermWrite>,
+    }
+    impl TermInputMsg {
+        /// Construct a [`TermInputMsg`] with arbitrary write spans.
+        pub fn new(target: Entity, writes: Vec<TermWrite>) -> Self {
+            Self { target, writes }
+        }
+        /// Writes text directly to the buffer. Supports ANSI. For a
+        /// rich-text based API, see [`Self::write_spans`].
+        pub fn write(target: Entity, value: impl ToString) -> Self {
+            let line = value.to_string();
+            Self {
+                target,
+                writes: vec![TermWrite::new(line)],
+            }
+        }
+        /// Writes a simple line to the buffer. Supports ANSI. Will
+        /// append a newline at the end. Will clear styles before and
+        /// after writing. For rich text support, see
+        /// [`Self::write_spans`].
+        pub fn writeln(target: Entity, line: impl ToString) -> Self {
+            let line = line.to_string();
+            Self {
+                target,
+                writes: vec![TermWrite::new(line + "\n").reset_style(true)],
+            }
+        }
+        /// Writes a rich line of text to the terminal. See
+        /// [`TermWrite`] for more detail.
+        pub fn write_spans(target: Entity, spans: Vec<TermWrite>) -> Self {
+            Self {
+                target,
+                writes: spans,
+            }
+        }
+    }
+
+    /// Request to scroll a terminal viewport by `delta` lines.
+    ///
+    /// Stub; no producer or consumer wired up yet.
+    #[derive(Message, Debug, Clone, Reflect)]
+    pub struct TermScrollMsg {
+        /// Target terminal entity.
+        pub target: Entity,
+        /// Signed line delta. Positive scrolls toward older content.
+        pub delta: isize,
+    }
+    impl TermScrollMsg {
+        /// Construct a [`TermScrollMsg`].
+        pub fn new(target: Entity, delta: isize) -> Self {
+            Self { target, delta }
+        }
+    }
+
+    /// Request to jump a terminal viewport to the bottom.
+    ///
+    /// Stub; no producer or consumer wired up yet.
+    #[derive(Message, Debug, Clone, Reflect)]
+    pub struct TermJumpToBottomMsg {
+        /// Target terminal entity.
+        pub target: Entity,
+    }
+    impl TermJumpToBottomMsg {
+        /// Construct a [`TermJumpToBottomMsg`].
+        pub fn new(target: Entity) -> Self {
+            Self { target }
+        }
+    }
+
+    /// Request to reflow a terminal's buffer to the current viewport.
+    ///
+    /// Stub; no producer or consumer wired up yet.
+    #[derive(Message, Debug, Clone, Reflect)]
+    pub struct TermReflowMsg {
+        /// Target terminal entity.
+        pub target: Entity,
+    }
+    impl TermReflowMsg {
+        /// Construct a [`TermReflowMsg`].
+        pub fn new(target: Entity) -> Self {
+            Self { target }
+        }
+    }
+
+    /// Notification that a terminal's buffer was mutated.
+    ///
+    /// Stub; no producer or consumer wired up yet.
+    #[derive(Message, Debug, Clone, Reflect)]
+    pub struct TermBufferMutatedMsg {
+        /// Target terminal entity.
+        pub target: Entity,
+    }
+    impl TermBufferMutatedMsg {
+        /// Construct a [`TermBufferMutatedMsg`].
+        pub fn new(target: Entity) -> Self {
+            Self { target }
+        }
+    }
+
+    /// Notification that a terminal's cursor moved.
+    ///
+    /// Stub; no producer or consumer wired up yet.
+    #[derive(Message, Debug, Clone, Reflect)]
+    pub struct TermCursorMovedMsg {
+        /// Target terminal entity.
+        pub target: Entity,
+        /// Cursor position after the move.
+        pub pos: VtCursor,
+    }
+    impl TermCursorMovedMsg {
+        /// Construct a [`TermCursorMovedMsg`].
+        pub fn new(target: Entity, pos: VtCursor) -> Self {
+            Self { target, pos }
+        }
+    }
+
+    /// Request to redraw the terminal's UI representation.
+    ///
+    /// Stub; no producer or consumer wired up yet.
+    #[derive(Message, Debug, Clone, Reflect)]
+    pub struct TermRedrawRequestedMsg {
+        /// Target terminal entity.
+        pub target: Entity,
+    }
+    impl TermRedrawRequestedMsg {
+        /// Construct a [`TermRedrawRequestedMsg`].
+        pub fn new(target: Entity) -> Self {
+            Self { target }
+        }
+    }
+
+    /// Notification that focus on a terminal entity changed.
+    ///
+    /// Stub; no producer or consumer wired up yet.
+    #[derive(Message, Debug, Clone, Reflect)]
+    pub struct TermFocusChangedMsg {
+        /// Target terminal entity.
+        pub target: Entity,
+        /// `true` when the terminal gained focus, `false` when it lost it.
+        pub focused: bool,
+    }
+    impl TermFocusChangedMsg {
+        /// Construct a [`TermFocusChangedMsg`].
+        pub fn new(target: Entity, focused: bool) -> Self {
+            Self { target, focused }
+        }
+    }
 }
 pub use events::*;
 

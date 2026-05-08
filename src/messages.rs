@@ -62,9 +62,17 @@ pub fn handle_messages(
         commands.run_system_cached_with(reflow, target);
     }
     for (target, vec) in to_write {
-        // do NOT want to clear if we can't get terminfo.
-        // try again next frame.
-        let terminfo = r!(q_terminfo.get(target));
+        let terminfo = match q_terminfo.get(target) {
+            Ok(t) => t,
+            Err(_) => {
+                warn!(
+                    ?target,
+                    write_count = vec.len(),
+                    "TermInfo unresolvable for Write target; dropping (S6 will replace with PendingTermInput)"
+                );
+                continue;
+            }
+        };
         let mut grid = Grid::new(&terminfo, &q_lines, &q_rows);
         {
             let mut performer = AnsiPerformer::new(&mut grid);

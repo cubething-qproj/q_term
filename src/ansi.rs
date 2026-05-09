@@ -184,6 +184,11 @@ impl<'a> Grid<'a> {
         }
     }
 
+    /// Snapshot the grid's current cursor.
+    pub(crate) fn cursor(&self) -> VtCursor {
+        self.cursor
+    }
+
     fn visible_lines_as_string(&self, to_write: Option<char>) -> String {
         self.visible_rows()
             .iter()

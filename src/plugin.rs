@@ -32,7 +32,6 @@ pub struct TerminalPlugin;
 
 impl Plugin for TerminalPlugin {
     fn build(&self, app: &mut App) {
-        app.add_message::<TermMsg>();
         app.add_message::<TermInputMsg>();
         app.add_message::<TermScrollMsg>();
         app.add_message::<TermJumpToBottomMsg>();
@@ -46,7 +45,9 @@ impl Plugin for TerminalPlugin {
             Update,
             (
                 (update_font, update_char_width, resize).in_set(TerminalSystems::Measure),
-                (handle_messages, scroll_viewport).in_set(TerminalSystems::Process),
+                (process_input, apply_scroll, apply_reflow, scroll_viewport)
+                    .chain()
+                    .in_set(TerminalSystems::Process),
             )
                 .chain(),
         );

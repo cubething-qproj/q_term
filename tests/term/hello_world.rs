@@ -17,7 +17,7 @@ fn hello_world_hierarchy() {
         commands
             .entity(term_id)
             .insert(VtSize { cols: 80, rows: 24 });
-        commands.write_message(TermMsg::write(term_id, "Hello, world!"));
+        commands.write_message(TermInputMsg::write(term_id, "Hello, world!"));
     });
 
     app.add_step(

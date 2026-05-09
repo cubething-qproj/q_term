@@ -42,16 +42,13 @@ mod terminfo {
             })
         }
 
-        #[inline(always)]
-        pub fn mutate(&self, commands: &mut Commands, msg: TermMsgKind) {
-            commands.write_message(TermMsg::new(self.id, msg));
-        }
-
+        /// Write text into this terminal's buffer. Supports ANSI.
         pub fn write(&self, commands: &mut Commands, value: impl ToString) {
-            commands.write_message(TermMsg::write(self.id, value));
+            commands.write_message(TermInputMsg::write(self.id, value));
         }
+        /// Write rich text spans into this terminal's buffer.
         pub fn write_spans(&self, commands: &mut Commands, spans: Vec<TermWrite>) {
-            commands.write_message(TermMsg::write_spans(self.id, spans));
+            commands.write_message(TermInputMsg::write_spans(self.id, spans));
         }
     }
 }
@@ -466,7 +463,9 @@ mod terminal {
     }
     impl VtSize {
         fn on_insert(mut world: DeferredWorld, ctx: HookContext) {
-            world.commands().write_message(TermMsg::reflow(ctx.entity));
+            world
+                .commands()
+                .write_message(TermReflowMsg::new(ctx.entity));
         }
     }
 }
@@ -475,81 +474,31 @@ pub use terminal::*;
 mod events {
     use super::*;
 
-    /// A mutation to send to the terminal window.
-    #[derive(Debug, Message, Reflect, Clone)]
-    pub struct TermMsg {
-        pub target: Entity,
-        pub kind: TermMsgKind,
-        pub(crate) retry_count: usize,
-    }
-    #[derive(Debug, Reflect, Clone)]
-    pub enum TermMsgKind {
-        /// Reflow the terminal. Modifes LineRefs.
-        Reflow,
-        /// Scroll in the given direction. A scroll position of 0 means you are
-        /// at the last line.
-        Scroll(isize),
-        /// Jump to the last line. Sets scroll value to 0.
-        JumpToBottom,
-        /// Write charaters to the screen.
-        Write(Vec<TermWrite>),
-    }
-    impl TermMsg {
-        pub fn new(term_id: Entity, kind: TermMsgKind) -> Self {
-            Self {
-                target: term_id,
-                kind,
-                retry_count: 0,
-            }
-        }
-        pub fn scroll(term_id: Entity, direction: isize) -> Self {
-            Self::new(term_id, TermMsgKind::Scroll(direction))
-        }
-        pub fn jump_to_bottom(term_id: Entity) -> Self {
-            Self::new(term_id, TermMsgKind::JumpToBottom)
-        }
-        pub fn reflow(term_id: Entity) -> Self {
-            Self::new(term_id, TermMsgKind::Reflow)
-        }
-        /// Writes text directly to the buffer. Supports ANSI. For a rich-text
-        /// based API, see [Self::write_spans]
-        pub fn write(term_id: Entity, spans: impl ToString) -> Self {
-            let line = spans.to_string();
-            Self::new(term_id, TermMsgKind::Write(vec![TermWrite::new(line)]))
-        }
-        /// Writes a simple line to the buffer. Supports ANSI. Will append a
-        /// newline at the end. Will clear styles before and after writing. For
-        /// rich text support, see [Self::write_spans]
-        pub fn writeln(term_id: Entity, line: impl ToString) -> Self {
-            let line = line.to_string();
-            Self::new(
-                term_id,
-                TermMsgKind::Write(vec![TermWrite::new(line + "\n").reset_style(true)]),
-            )
-        }
-        /// Writes a rich line of text to the terminal. See [`TermWrite`] for
-        /// more detail.
-        pub fn write_spans(term_id: Entity, spans: Vec<TermWrite>) -> Self {
-            Self::new(term_id, TermMsgKind::Write(spans))
-        }
-    }
-
     /// Request to write characters/spans into a terminal's buffer.
     ///
-    /// Stub introduced ahead of the typed-message migration; no
-    /// producer or consumer wired up yet. See `TermMsg` for the
-    /// pipeline still in use.
+    /// The pipeline's authoritative input message: producers (the
+    /// shell, helper APIs on [`TermInfoItem`], tests) write these and
+    /// `process_input` drains them through the ANSI parser.
     #[derive(Message, Debug, Clone, Reflect)]
     pub struct TermInputMsg {
         /// Target terminal entity.
         pub target: Entity,
         /// Spans to write into the buffer.
         pub writes: Vec<TermWrite>,
+        /// Re-queue counter used when the target's [`TermInfo`] has
+        /// not been resolved yet. Removed in a follow-up that
+        /// replaces the retry loop with a pending-attachment
+        /// component.
+        pub(crate) retry_count: u8,
     }
     impl TermInputMsg {
         /// Construct a [`TermInputMsg`] with arbitrary write spans.
         pub fn new(target: Entity, writes: Vec<TermWrite>) -> Self {
-            Self { target, writes }
+            Self {
+                target,
+                writes,
+                retry_count: 0,
+            }
         }
         /// Writes text directly to the buffer. Supports ANSI. For a
         /// rich-text based API, see [`Self::write_spans`].
@@ -558,6 +507,7 @@ mod events {
             Self {
                 target,
                 writes: vec![TermWrite::new(line)],
+                retry_count: 0,
             }
         }
         /// Writes a simple line to the buffer. Supports ANSI. Will
@@ -569,6 +519,7 @@ mod events {
             Self {
                 target,
                 writes: vec![TermWrite::new(line + "\n").reset_style(true)],
+                retry_count: 0,
             }
         }
         /// Writes a rich line of text to the terminal. See
@@ -577,30 +528,34 @@ mod events {
             Self {
                 target,
                 writes: spans,
+                retry_count: 0,
             }
         }
     }
 
     /// Request to scroll a terminal viewport by `delta` lines.
-    ///
-    /// Stub; no producer or consumer wired up yet.
     #[derive(Message, Debug, Clone, Reflect)]
     pub struct TermScrollMsg {
         /// Target terminal entity.
         pub target: Entity,
         /// Signed line delta. Positive scrolls toward older content.
         pub delta: isize,
+        /// Re-queue counter used when the target's [`TermInfo`] is
+        /// not yet resolvable. Removed in a follow-up.
+        pub(crate) retry_count: u8,
     }
     impl TermScrollMsg {
         /// Construct a [`TermScrollMsg`].
         pub fn new(target: Entity, delta: isize) -> Self {
-            Self { target, delta }
+            Self {
+                target,
+                delta,
+                retry_count: 0,
+            }
         }
     }
 
     /// Request to jump a terminal viewport to the bottom.
-    ///
-    /// Stub; no producer or consumer wired up yet.
     #[derive(Message, Debug, Clone, Reflect)]
     pub struct TermJumpToBottomMsg {
         /// Target terminal entity.
@@ -614,8 +569,6 @@ mod events {
     }
 
     /// Request to reflow a terminal's buffer to the current viewport.
-    ///
-    /// Stub; no producer or consumer wired up yet.
     #[derive(Message, Debug, Clone, Reflect)]
     pub struct TermReflowMsg {
         /// Target terminal entity.
@@ -629,8 +582,6 @@ mod events {
     }
 
     /// Notification that a terminal's buffer was mutated.
-    ///
-    /// Stub; no producer or consumer wired up yet.
     #[derive(Message, Debug, Clone, Reflect)]
     pub struct TermBufferMutatedMsg {
         /// Target terminal entity.
@@ -644,8 +595,6 @@ mod events {
     }
 
     /// Notification that a terminal's cursor moved.
-    ///
-    /// Stub; no producer or consumer wired up yet.
     #[derive(Message, Debug, Clone, Reflect)]
     pub struct TermCursorMovedMsg {
         /// Target terminal entity.
@@ -661,8 +610,6 @@ mod events {
     }
 
     /// Request to redraw the terminal's UI representation.
-    ///
-    /// Stub; no producer or consumer wired up yet.
     #[derive(Message, Debug, Clone, Reflect)]
     pub struct TermRedrawRequestedMsg {
         /// Target terminal entity.

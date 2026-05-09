@@ -134,19 +134,28 @@ fn generate_textspan_ui(
 }
 
 /// Translates from [`VtViewportRow`] entities to the [`VtUi`]-based render.
-/// Completely clears out the UI, then replaces the [`TextSpan`]s based on
-/// the current viewport data.
+/// Drains [`TermRedrawRequestedMsg`] and rebuilds the [`TextSpan`]
+/// children for each affected terminal's UI target. Targets are
+/// de-duplicated within a frame.
 pub fn refresh_ui(
-    q: Query<
-        (TermInfo, &VtUiTarget),
-        Or<(Changed<VtSize>, Changed<VtViewport>, Changed<VtScrollPos>)>,
-    >,
+    mut redraws: MessageReader<TermRedrawRequestedMsg>,
+    q: Query<(TermInfo, &VtUiTarget)>,
     q_lines: Query<&VtLine>,
     q_viewport: Query<(&VtViewportRow, Option<Ref<VtRow>>)>,
     mut commands: Commands,
 ) {
     trace!("refresh_ui (spawn textspans)");
-    for (terminfo, ui_target) in q {
+    let mut targets: Vec<Entity> = vec![];
+    for msg in redraws.read() {
+        if !targets.contains(&msg.target) {
+            targets.push(msg.target);
+        }
+    }
+    for target in targets {
+        let (terminfo, ui_target) = match q.get(target) {
+            Ok(v) => v,
+            Err(_) => continue,
+        };
         let ui_id = ui_target.target();
         commands.entity(ui_id).despawn_children();
         let mut spans = vec![];
@@ -191,7 +200,7 @@ pub(crate) fn on_scroll(
             trigger.y / line_height
         }
     };
-    commands.write_message(TermMsg::scroll(ui.target(), delta as isize));
+    commands.write_message(TermScrollMsg::new(ui.target(), delta as isize));
 }
 
 pub(crate) fn scroll_viewport(

@@ -13,7 +13,7 @@ fn ansi_test(
     app.add_systems(Startup, move |mut commands: Commands| {
         let term_id = commands.spawn(Terminal).id();
         commands.entity(term_id).insert(VtSize { cols, rows });
-        commands.write_message(TermMsg::write(term_id, input));
+        commands.write_message(TermInputMsg::write(term_id, input));
     });
     app.add_step(
         0,
@@ -158,7 +158,7 @@ fn palette_background() {
         commands
             .entity(term_id)
             .insert(VtSize { cols: 80, rows: 24 });
-        commands.write_message(TermMsg::write(term_id, &input));
+        commands.write_message(TermInputMsg::write(term_id, &input));
     });
 
     app.add_step(
@@ -430,7 +430,7 @@ fn truecolor() {
         commands
             .entity(term_id)
             .insert(VtSize { cols: 80, rows: 24 });
-        commands.write_message(TermMsg::write(
+        commands.write_message(TermInputMsg::write(
             term_id,
             "\x1b[38;2;255;0;128;48;2;0;64;255mHi\x1b[0m!",
         ));
@@ -520,7 +520,7 @@ fn palette_foreground() {
         commands
             .entity(term_id)
             .insert(VtSize { cols: 80, rows: 24 });
-        commands.write_message(TermMsg::write(term_id, &input));
+        commands.write_message(TermInputMsg::write(term_id, &input));
     });
 
     app.add_step(
@@ -607,7 +607,7 @@ fn cursor_write_arbitrary_positions() {
         commands
             .entity(term_id)
             .insert(VtSize { cols: 40, rows: 24 });
-        commands.write_message(TermMsg::write(term_id, input));
+        commands.write_message(TermInputMsg::write(term_id, input));
     });
 
     app.add_step(

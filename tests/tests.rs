@@ -8,12 +8,8 @@ pub mod prelude {
 }
 
 use bevy::{
-    image::TextureAtlasPlugin,
-    input::InputPlugin,
-    picking::PickingSettings,
-    render::texture::TexturePlugin,
-    text::TextPlugin,
-    ui::UiPlugin,
+    image::TextureAtlasPlugin, input::InputPlugin, picking::PickingSettings,
+    render::texture::TexturePlugin, text::TextPlugin, ui::UiPlugin,
 };
 use prelude::*;
 
@@ -39,7 +35,7 @@ pub fn get_test_app() -> App {
         TextureAtlasPlugin,
         ImagePlugin::default(),
         TexturePlugin,
-        TerminalPlugin::default(),
+        TerminalPlugin,
     ));
     app.insert_resource(TestRunnerTimeout(2.));
     app

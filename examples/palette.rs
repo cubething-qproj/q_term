@@ -17,7 +17,7 @@ fn main() {
             }),
             ..Default::default()
         }),
-        TerminalPlugin::default(),
+        TerminalPlugin,
     ));
     app.add_systems(Startup, setup);
     app.run();
@@ -45,14 +45,22 @@ fn setup(mut commands: Commands) {
     // Standard foreground (30–37)
     out.push_str("  Standard FG:  ");
     for i in 0..8u8 {
-        out.push_str(&format!("\x1b[{}m {:>7} \x1b[0m", 30 + i, ANSI_NAMES[i as usize]));
+        out.push_str(&format!(
+            "\x1b[{}m {:>7} \x1b[0m",
+            30 + i,
+            ANSI_NAMES[i as usize]
+        ));
     }
     out.push('\n');
 
     // Bright foreground (90–97)
     out.push_str("  Bright FG:    ");
     for i in 0..8u8 {
-        out.push_str(&format!("\x1b[{}m {:>7} \x1b[0m", 90 + i, ANSI_NAMES[i as usize]));
+        out.push_str(&format!(
+            "\x1b[{}m {:>7} \x1b[0m",
+            90 + i,
+            ANSI_NAMES[i as usize]
+        ));
     }
     out.push_str("\n\n");
 
@@ -60,7 +68,11 @@ fn setup(mut commands: Commands) {
     out.push_str("  Standard BG:  ");
     for i in 0..8u8 {
         let fg = if i < 4 { "97" } else { "30" };
-        out.push_str(&format!("\x1b[{fg};{}m {:>7} \x1b[0m", 40 + i, ANSI_NAMES[i as usize]));
+        out.push_str(&format!(
+            "\x1b[{fg};{}m {:>7} \x1b[0m",
+            40 + i,
+            ANSI_NAMES[i as usize]
+        ));
     }
     out.push('\n');
 

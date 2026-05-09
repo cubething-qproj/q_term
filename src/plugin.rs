@@ -1,4 +1,3 @@
-use bevy::ecs::schedule::{InternedScheduleLabel, ScheduleLabel};
 use bevy::ui::ui_layout_system;
 
 use crate::prelude::*;
@@ -27,40 +26,9 @@ pub enum TerminalSystems {
 /// `pre` hosts [`TerminalSystems::Input`], `update` hosts the
 /// [`TerminalSystems::Measure`] → [`TerminalSystems::Process`] chain,
 /// and `post` hosts [`TerminalSystems::RenderPrep`] (after
-/// `ui_layout_system`). [`Default`] selects `(PreUpdate, Update,
-/// PostUpdate)`.
+/// `ui_layout_system`).
 #[derive(Debug)]
-pub struct TerminalPlugin {
-    /// Schedule hosting [`TerminalSystems::Input`].
-    pub pre: InternedScheduleLabel,
-    /// Schedule hosting the [`TerminalSystems::Measure`] →
-    /// [`TerminalSystems::Process`] chain.
-    pub update: InternedScheduleLabel,
-    /// Schedule hosting [`TerminalSystems::RenderPrep`].
-    pub post: InternedScheduleLabel,
-}
-
-impl TerminalPlugin {
-    /// Construct a [`TerminalPlugin`] that routes its sets across the
-    /// given schedules.
-    pub fn new(
-        pre: impl ScheduleLabel,
-        update: impl ScheduleLabel,
-        post: impl ScheduleLabel,
-    ) -> Self {
-        Self {
-            pre: pre.intern(),
-            update: update.intern(),
-            post: post.intern(),
-        }
-    }
-}
-
-impl Default for TerminalPlugin {
-    fn default() -> Self {
-        Self::new(PreUpdate, Update, PostUpdate)
-    }
-}
+pub struct TerminalPlugin;
 
 impl Plugin for TerminalPlugin {
     fn build(&self, app: &mut App) {
@@ -74,29 +42,19 @@ impl Plugin for TerminalPlugin {
         app.add_message::<TermRedrawRequestedMsg>();
         app.add_message::<TermFocusChangedMsg>();
 
-        app.configure_sets(self.pre, TerminalSystems::Input);
-        app.configure_sets(
-            self.update,
-            (TerminalSystems::Measure, TerminalSystems::Process).chain(),
-        );
-        app.configure_sets(
-            self.post,
-            TerminalSystems::RenderPrep.after(ui_layout_system),
-        );
-
         app.add_systems(
-            self.update,
+            Update,
             (
-                update_font.in_set(TerminalSystems::Measure),
-                update_char_width.in_set(TerminalSystems::Measure),
-                resize.in_set(TerminalSystems::Measure),
-                handle_messages.in_set(TerminalSystems::Process),
-                scroll_viewport.in_set(TerminalSystems::Process),
-            ),
+                (update_font, update_char_width, resize).in_set(TerminalSystems::Measure),
+                (handle_messages, scroll_viewport).in_set(TerminalSystems::Process),
+            )
+                .chain(),
         );
         app.add_systems(
-            self.post,
-            refresh_ui.in_set(TerminalSystems::RenderPrep),
+            PostUpdate,
+            refresh_ui
+                .after(ui_layout_system)
+                .in_set(TerminalSystems::RenderPrep),
         );
     }
 }

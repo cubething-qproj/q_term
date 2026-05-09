@@ -700,12 +700,10 @@ mod command {
 
     /// Generic command bus message addressed to a terminal entity.
     ///
-    /// Reserves the contract that downstream consumers (notably the
-    /// shell sub-design and `quell`'s
-    /// `MessageReader<CommandMsg<ScreenCmd>>`) hook into. Production
-    /// and consumption happen in [`TerminalSystems::Input`]; the
-    /// writer→reader pair lives in the same schedule so messages are
-    /// observed within a single frame.
+    /// Reserves the contract that downstream consumers hook into. Production
+    /// and consumption happen in [`TerminalSystems::Input`]; the writer->reader
+    /// pair lives in the same schedule so messages are observed within a single
+    /// frame.
     ///
     /// `q_term` ships only the data shape here. Convenience surfaces
     /// such as `println` deliberately live on the `shell` side via
@@ -744,7 +742,7 @@ mod command {
     /// because the set of payload types is owned by downstream
     /// consumers (`shell`, `quell`, application code). Each consumer
     /// calls this helper once per `T` it cares about.
-    pub fn register_command_msg<T>(app: &mut App)
+    pub fn register_term_cmd<T>(app: &mut App)
     where
         T: Reflect + TypePath + Clone + Debug + Send + Sync + 'static,
     {

@@ -14,7 +14,7 @@ fn main() {
             }),
             ..Default::default()
         }),
-        TerminalPlugin::default(),
+        TerminalPlugin,
     ));
     app.add_plugins((
         bevy_inspector_egui::bevy_egui::EguiPlugin::default(),

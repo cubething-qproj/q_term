@@ -694,6 +694,65 @@ mod events {
 }
 pub use events::*;
 
+mod command {
+    use super::*;
+    use std::fmt::Debug;
+
+    /// Generic command bus message addressed to a terminal entity.
+    ///
+    /// Reserves the contract that downstream consumers (notably the
+    /// shell sub-design and `quell`'s
+    /// `MessageReader<CommandMsg<ScreenCmd>>`) hook into. Production
+    /// and consumption happen in [`TerminalSystems::Input`]; the
+    /// writer→reader pair lives in the same schedule so messages are
+    /// observed within a single frame.
+    ///
+    /// `q_term` ships only the data shape here. Convenience surfaces
+    /// such as `println` deliberately live on the `shell` side via
+    /// extension traits or wrapper types — the formatting policy and
+    /// any redirection into [`TermInputMsg`] is shell scope, not
+    /// terminal scope.
+    ///
+    /// `q_term` does NOT register any concrete `CommandMsg<T>`;
+    /// consumers call [`register_command_msg`] for the `T`s they
+    /// need.
+    #[derive(Message, Debug, Clone, Reflect)]
+    pub struct CommandMsg<T>
+    where
+        T: Reflect + TypePath + Clone + Debug + Send + Sync + 'static,
+    {
+        /// Terminal entity the command is addressed to.
+        pub target: Entity,
+        /// Command payload. Concrete `T` is owned by the consumer.
+        pub command: T,
+    }
+
+    impl<T> CommandMsg<T>
+    where
+        T: Reflect + TypePath + Clone + Debug + Send + Sync + 'static,
+    {
+        /// Construct a [`CommandMsg`] addressed to `target`.
+        pub fn new(target: Entity, command: T) -> Self {
+            Self { target, command }
+        }
+    }
+
+    /// Register `CommandMsg<T>` as a Bevy message on `app`.
+    ///
+    /// Canonical registration point for generic command messages.
+    /// `q_term::TerminalPlugin` does not register any specific `T`
+    /// because the set of payload types is owned by downstream
+    /// consumers (`shell`, `quell`, application code). Each consumer
+    /// calls this helper once per `T` it cares about.
+    pub fn register_command_msg<T>(app: &mut App)
+    where
+        T: Reflect + TypePath + Clone + Debug + Send + Sync + 'static,
+    {
+        app.add_message::<CommandMsg<T>>();
+    }
+}
+pub use command::*;
+
 pub mod helpers {
     use super::*;
 

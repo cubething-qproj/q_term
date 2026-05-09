@@ -43,7 +43,7 @@ fn read_command(
 #[test]
 fn command_msg_same_schedule_writer_reader() {
     let mut app = get_test_app();
-    register_command_msg::<TestCmd>(&mut app);
+    register_term_cmd::<TestCmd>(&mut app);
     app.init_resource::<ReadCount>();
 
     app.add_systems(Startup, |mut commands: Commands| {
@@ -64,21 +64,15 @@ fn command_msg_same_schedule_writer_reader() {
         ),
     );
 
-    app.add_step(
-        0,
-        |count: Res<ReadCount>, mut commands: Commands| {
-            // Producer sends exactly once; reader must observe it the
-            // same tick because both systems live in the `Input` set.
-            if count.0 == 0 {
-                return;
-            }
-            r!(commands.assert(
-                count.0 == 1,
-                "Reader should observe exactly one CommandMsg",
-            ));
-            commands.write_message(AppExit::Success);
-        },
-    );
+    app.add_step(0, |count: Res<ReadCount>, mut commands: Commands| {
+        // Producer sends exactly once; reader must observe it the
+        // same tick because both systems live in the `Input` set.
+        if count.0 == 0 {
+            return;
+        }
+        r!(commands.assert(count.0 == 1, "Reader should observe exactly one CommandMsg",));
+        commands.write_message(AppExit::Success);
+    });
 
     assert!(app.run().is_success());
 }

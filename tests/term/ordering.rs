@@ -1,0 +1,64 @@
+use crate::prelude::*;
+
+/// Counts how many `TermBufferMutatedMsg` entries the in-test reader has
+/// observed across all frames.
+#[derive(Resource, Default, Debug)]
+struct MutatedReadCount(u32);
+
+/// Reader system installed in `TerminalSystems::Process` after
+/// `process_input`. Counts every `TermBufferMutatedMsg` it sees.
+fn count_mutations(
+    mut reader: MessageReader<TermBufferMutatedMsg>,
+    mut count: ResMut<MutatedReadCount>,
+) {
+    for _ in reader.read() {
+        count.0 += 1;
+    }
+}
+
+/// Verifies that a `TermInputMsg` written from `Startup` produces exactly
+/// one `TermBufferMutatedMsg` visible to a reader sitting after
+/// `process_input` in the `TerminalSystems::Process` chain on the same
+/// frame. Exercises the writer to reader seam inside `Process`.
+#[test]
+fn process_chain_emits_buffer_mutated_in_order() {
+    let mut app = get_test_app();
+    app.init_resource::<MutatedReadCount>();
+
+    app.add_systems(Startup, |mut commands: Commands| {
+        let term_id = commands.spawn(Terminal).id();
+        // VtSize must be present synchronously, otherwise `process_input`
+        // drops the input on the first frame (TermInfo unresolvable).
+        commands
+            .entity(term_id)
+            .insert(VtSize { cols: 80, rows: 24 });
+        commands.write_message(TermInputMsg::write(term_id, "x"));
+    });
+
+    // Pin the reader strictly between `process_input` and the rest of the
+    // chain. Without `.before(apply_scroll)` Bevy is free to schedule it
+    // after `apply_reflow`, which also emits `TermBufferMutatedMsg` (the
+    // `VtSize::on_insert` hook fires a reflow), poisoning the count.
+    app.add_systems(
+        Update,
+        count_mutations
+            .in_set(TerminalSystems::Process)
+            .after(process_input)
+            .before(apply_scroll),
+    );
+
+    app.add_step(0, |count: Res<MutatedReadCount>, mut commands: Commands| {
+        // Wait until the reader has observed at least one mutation, then
+        // assert the count is exactly one and exit.
+        if count.0 == 0 {
+            return;
+        }
+        r!(commands.assert(
+            count.0 == 1,
+            "Reader should observe exactly one TermBufferMutatedMsg",
+        ));
+        commands.write_message(AppExit::Success);
+    });
+
+    assert!(app.run().is_success());
+}

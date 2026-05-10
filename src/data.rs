@@ -622,6 +622,11 @@ mod events {
         }
     }
 
+    /// Maximum total bytes of queued text per target. Pushes that would
+    /// exceed this evict oldest [`TermWrite`] spans (whole-span FIFO)
+    /// until the new write fits, emitting a `warn!` per eviction.
+    pub const PENDING_TERM_INPUT_CAP_BYTES: usize = 1 << 20; // 1 MiB
+
     /// Pending [`TermInputMsg`] writes queued on a target whose
     /// [`TermInfo`] could not be resolved when the message was
     /// processed.
@@ -632,16 +637,53 @@ mod events {
     /// writes against the same target accumulate in `writes` to
     /// preserve write order.
     ///
-    /// No per-target capacity guard is enforced: a stuck terminal
-    /// will accumulate writes until the parent process runs out of
-    /// memory. This is operator-visible and considered acceptable
-    /// for now; a bound can be added later as a one-line check on
-    /// the producer side.
+    /// The queue is bounded at [`PENDING_TERM_INPUT_CAP_BYTES`] total
+    /// `TermWrite::text` bytes. When a push would exceed the cap,
+    /// oldest whole spans are evicted FIFO until the new content fits;
+    /// the producer-side helper [`PendingTermInput::push_writes`]
+    /// enforces this and emits a single `warn!` per call summarising
+    /// any eviction.
     #[derive(Component, Debug, Clone, Default, Reflect)]
     pub struct PendingTermInput {
         /// Spans queued for the target. Re-emitted as the `writes`
         /// payload of a [`TermInputMsg`] when drained.
         pub writes: Vec<TermWrite>,
+    }
+    impl PendingTermInput {
+        /// Push spans onto the queue, evicting oldest whole spans
+        /// (FIFO) when the queue would otherwise exceed
+        /// [`PENDING_TERM_INPUT_CAP_BYTES`] in total
+        /// `TermWrite::text` bytes. Returns the number of spans
+        /// evicted.
+        ///
+        /// A single incoming span larger than the cap is still
+        /// admitted (dropping it would silently lose mid-stream
+        /// data); the eviction loop will drain every other span
+        /// from the queue in that case.
+        ///
+        /// Emits at most one `warn!` per call, summarising any
+        /// eviction that occurred.
+        pub fn push_writes(&mut self, new: impl IntoIterator<Item = TermWrite>) -> usize {
+            let mut total: usize = self.writes.iter().map(|w| w.text.len()).sum();
+            let mut evicted: usize = 0;
+            for span in new {
+                total += span.text.len();
+                self.writes.push(span);
+                while total > PENDING_TERM_INPUT_CAP_BYTES && self.writes.len() > 1 {
+                    let popped = self.writes.remove(0);
+                    total -= popped.text.len();
+                    evicted += 1;
+                }
+            }
+            if evicted > 0 {
+                warn!(
+                    evicted,
+                    cap_bytes = PENDING_TERM_INPUT_CAP_BYTES,
+                    "PendingTermInput exceeded cap; evicted oldest spans"
+                );
+            }
+            evicted
+        }
     }
 
     /// Pending [`TermScrollMsg`] delta queued on a target whose
@@ -657,6 +699,14 @@ mod events {
         /// Accumulated signed line delta. Re-emitted as the `delta`
         /// of a [`TermScrollMsg`] when drained.
         pub delta: isize,
+    }
+    impl PendingTermScroll {
+        /// Accumulate a signed line delta with saturating semantics.
+        /// Use this rather than `delta += new` to avoid overflow on
+        /// pathological pending accumulations.
+        pub fn add_delta(&mut self, new: isize) {
+            self.delta = self.delta.saturating_add(new);
+        }
     }
 
     /// Notification that focus on a terminal entity changed.

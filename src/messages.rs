@@ -246,12 +246,22 @@ fn flow_line(
     if terminfo.size.cols == 0 || terminfo.size.rows == 0 {
         return res;
     }
+    // Always spawn at least one row per line. An empty line still
+    // occupies a slot in the visual grid, and -- more importantly -- if
+    // we leave a `VtLine` with zero `VtRow`s, Bevy's relationship
+    // on_replace hook removes the now-empty `VtRowTarget` (see
+    // `bevy_ecs::relationship::Relationship::on_replace`). That breaks
+    // the invariant `terminfo.rows()` (q_term/active/src/data.rs:40)
+    // relies on and produces a per-frame bail.
     let mut offset = 0;
-    while offset < line.cells().len() {
+    loop {
         let new_row = VtRow::new(line_id, offset);
         let id = commands.spawn(new_row).id();
         res.push(id);
         offset += terminfo.size.cols;
+        if offset >= line.cells().len() {
+            break;
+        }
     }
     res
 }

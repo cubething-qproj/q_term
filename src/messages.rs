@@ -2,25 +2,6 @@ use bevy::platform::collections::HashMap;
 
 use crate::prelude::*;
 
-/// Re-queue a [`TermScrollMsg`] up to a fixed retry budget; warn and
-/// drop after.
-///
-/// Used by [`apply_scroll`] when the target [`TermInfo`] has not been
-/// resolved yet on the same frame the message was written. Removed in
-/// the next stage when [`PendingTermInput`]-style attachment replaces
-/// the retry loop.
-fn retry_message(commands: &mut Commands, msg: TermScrollMsg, reason: &str) {
-    if msg.retry_count < 10 {
-        // try again next frame
-        commands.write_message(TermScrollMsg {
-            retry_count: msg.retry_count + 1,
-            ..msg
-        });
-    } else {
-        warn!(?msg, reason, "Dropped terminal message");
-    }
-}
-
 /// Re-emit pending input/scroll messages once their target resolves.
 ///
 /// Iterates entities carrying [`PendingTermInput`] or
@@ -48,7 +29,6 @@ pub fn drain_pending(
             commands.write_message(TermInputMsg {
                 target: entity,
                 writes: pending.writes.clone(),
-                retry_count: 0,
             });
         }
     }
@@ -58,7 +38,6 @@ pub fn drain_pending(
             commands.write_message(TermScrollMsg {
                 target: entity,
                 delta: pending.delta,
-                retry_count: 0,
             });
         }
     }
@@ -68,14 +47,15 @@ pub fn drain_pending(
 ///
 /// Looks up each message's target [`TermInfo`], builds a [`Grid`],
 /// runs the parser/performer, then syncs the grid back into the world.
-/// Targets whose [`TermInfo`] cannot be resolved this frame are
-/// dropped with a warning (replaced by a pending-attachment scheme in
-/// a follow-up). Emits [`TermBufferMutatedMsg`],
-/// [`TermCursorMovedMsg`], and [`TermRedrawRequestedMsg`] per
-/// affected target.
+/// Targets whose [`TermInfo`] cannot be resolved this frame have their
+/// pending writes attached as a [`PendingTermInput`] component on the
+/// target; `drain_pending` re-emits them once the target resolves.
+/// Emits [`TermBufferMutatedMsg`], [`TermCursorMovedMsg`], and
+/// [`TermRedrawRequestedMsg`] per affected target.
 pub fn process_input(
     mut messages: MessageReader<TermInputMsg>,
     mut commands: Commands,
+    cap: Res<PendingTermInputCap>,
     q_terminfo: Query<TermInfo>,
     q_lines: Query<(Entity, &VtLine, &VtRowTarget)>,
     q_rows: Query<(Entity, &VtRow)>,
@@ -85,15 +65,20 @@ pub fn process_input(
     for msg in messages.read() {
         to_write.entry(msg.target).or_default().extend(&msg.writes);
     }
+    let cap_bytes = cap.bytes;
     for (target, writes) in to_write {
         let terminfo = match q_terminfo.get(target) {
             Ok(t) => t,
             Err(_) => {
-                warn!(
-                    ?target,
-                    write_count = writes.len(),
-                    "TermInfo unresolvable for Write target; dropping (a follow-up swaps this for PendingTermInput)"
-                );
+                let writes_owned: Vec<TermWrite> =
+                    writes.iter().map(|w| (*w).clone()).collect();
+                commands
+                    .entity(target)
+                    .entry::<PendingTermInput>()
+                    .or_default()
+                    .and_modify(move |mut pending| {
+                        pending.push_writes(writes_owned, cap_bytes);
+                    });
                 continue;
             }
         };
@@ -145,7 +130,14 @@ pub fn apply_scroll(
         let terminfo = match q_terminfo.get(msg.target) {
             Ok(t) => t,
             Err(_) => {
-                retry_message(&mut commands, msg.clone(), "no terminfo");
+                let delta = msg.delta;
+                commands
+                    .entity(msg.target)
+                    .entry::<PendingTermScroll>()
+                    .or_default()
+                    .and_modify(move |mut pending| {
+                        pending.add_delta(delta);
+                    });
                 continue;
             }
         };

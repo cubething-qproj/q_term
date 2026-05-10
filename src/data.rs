@@ -485,20 +485,11 @@ mod events {
         pub target: Entity,
         /// Spans to write into the buffer.
         pub writes: Vec<TermWrite>,
-        /// Re-queue counter used when the target's [`TermInfo`] has
-        /// not been resolved yet. Removed in a follow-up that
-        /// replaces the retry loop with a pending-attachment
-        /// component.
-        pub(crate) retry_count: u8,
     }
     impl TermInputMsg {
         /// Construct a [`TermInputMsg`] with arbitrary write spans.
         pub fn new(target: Entity, writes: Vec<TermWrite>) -> Self {
-            Self {
-                target,
-                writes,
-                retry_count: 0,
-            }
+            Self { target, writes }
         }
         /// Writes text directly to the buffer. Supports ANSI. For a
         /// rich-text based API, see [`Self::write_spans`].
@@ -507,7 +498,6 @@ mod events {
             Self {
                 target,
                 writes: vec![TermWrite::new(line)],
-                retry_count: 0,
             }
         }
         /// Writes a simple line to the buffer. Supports ANSI. Will
@@ -519,7 +509,6 @@ mod events {
             Self {
                 target,
                 writes: vec![TermWrite::new(line + "\n").reset_style(true)],
-                retry_count: 0,
             }
         }
         /// Writes a rich line of text to the terminal. See
@@ -528,7 +517,6 @@ mod events {
             Self {
                 target,
                 writes: spans,
-                retry_count: 0,
             }
         }
     }
@@ -540,18 +528,11 @@ mod events {
         pub target: Entity,
         /// Signed line delta. Positive scrolls toward older content.
         pub delta: isize,
-        /// Re-queue counter used when the target's [`TermInfo`] is
-        /// not yet resolvable. Removed in a follow-up.
-        pub(crate) retry_count: u8,
     }
     impl TermScrollMsg {
         /// Construct a [`TermScrollMsg`].
         pub fn new(target: Entity, delta: isize) -> Self {
-            Self {
-                target,
-                delta,
-                retry_count: 0,
-            }
+            Self { target, delta }
         }
     }
 

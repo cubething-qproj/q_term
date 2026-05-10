@@ -268,7 +268,7 @@ impl<'a> Grid<'a> {
         assert_cursor_in_view!(self);
     }
     pub fn increment_line(&mut self) {
-        self.cursor.row = (self.cursor.row + 1).clamp(0, self.rows - 1);
+        self.cursor.row = (self.cursor.row + 1).clamp(0, self.rows.saturating_sub(1));
         assert_cursor_in_view!(self);
     }
     pub fn decrement_line(&mut self) {

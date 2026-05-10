@@ -50,6 +50,30 @@ mod terminfo {
         pub fn write_spans(&self, commands: &mut Commands, spans: Vec<TermWrite>) {
             commands.write_message(TermInputMsg::write_spans(self.id, spans));
         }
+
+        /// Write text into this terminal's buffer via a [`MessageWriter`].
+        /// Supports ANSI. Use this in hot-path systems; for lifecycle
+        /// hooks, observers, and external callers without a
+        /// [`MessageWriter`] system param, use [`Self::write`].
+        pub fn write_via(
+            &self,
+            writer: &mut MessageWriter<TermInputMsg>,
+            value: impl ToString,
+        ) {
+            writer.write(TermInputMsg::write(self.id, value));
+        }
+
+        /// Write rich text spans into this terminal's buffer via a
+        /// [`MessageWriter`]. Use this in hot-path systems; for lifecycle
+        /// hooks, observers, and external callers without a
+        /// [`MessageWriter`] system param, use [`Self::write_spans`].
+        pub fn write_spans_via(
+            &self,
+            writer: &mut MessageWriter<TermInputMsg>,
+            spans: Vec<TermWrite>,
+        ) {
+            writer.write(TermInputMsg::write_spans(self.id, spans));
+        }
     }
 }
 pub use terminfo::*;

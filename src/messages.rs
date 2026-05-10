@@ -21,6 +21,49 @@ fn retry_message(commands: &mut Commands, msg: TermScrollMsg, reason: &str) {
     }
 }
 
+/// Re-emit pending input/scroll messages once their target resolves.
+///
+/// Iterates entities carrying [`PendingTermInput`] or
+/// [`PendingTermScroll`]. For each, attempts to resolve the target's
+/// [`TermInfo`]; on success, removes the pending component and
+/// re-emits the corresponding [`TermInputMsg`] / [`TermScrollMsg`].
+/// Entities whose [`TermInfo`] is still unresolvable retain their
+/// pending component and are retried next frame.
+///
+/// Registered as the first system in [`TerminalSystems::Process`] so
+/// the re-emitted messages are observed by `process_input` and
+/// `apply_scroll` later in the same chain. Uses
+/// [`Commands::write_message`] to defer the write; a follow-up may
+/// migrate this to [`MessageWriter`].
+pub fn drain_pending(
+    mut commands: Commands,
+    q_terminfo: Query<TermInfo>,
+    q_pending_input: Query<(Entity, &PendingTermInput)>,
+    q_pending_scroll: Query<(Entity, &PendingTermScroll)>,
+) {
+    trace!("drain_pending");
+    for (entity, pending) in &q_pending_input {
+        if q_terminfo.get(entity).is_ok() {
+            commands.entity(entity).remove::<PendingTermInput>();
+            commands.write_message(TermInputMsg {
+                target: entity,
+                writes: pending.writes.clone(),
+                retry_count: 0,
+            });
+        }
+    }
+    for (entity, pending) in &q_pending_scroll {
+        if q_terminfo.get(entity).is_ok() {
+            commands.entity(entity).remove::<PendingTermScroll>();
+            commands.write_message(TermScrollMsg {
+                target: entity,
+                delta: pending.delta,
+                retry_count: 0,
+            });
+        }
+    }
+}
+
 /// Drain [`TermInputMsg`] writes and apply them via the ANSI parser.
 ///
 /// Looks up each message's target [`TermInfo`], builds a [`Grid`],

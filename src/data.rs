@@ -622,6 +622,43 @@ mod events {
         }
     }
 
+    /// Pending [`TermInputMsg`] writes queued on a target whose
+    /// [`TermInfo`] could not be resolved when the message was
+    /// processed.
+    ///
+    /// Producers attach this component instead of dropping the
+    /// message; the `drain_pending` system re-emits a [`TermInputMsg`]
+    /// once the target's prerequisites resolve. Multiple queued
+    /// writes against the same target accumulate in `writes` to
+    /// preserve write order.
+    ///
+    /// No per-target capacity guard is enforced: a stuck terminal
+    /// will accumulate writes until the parent process runs out of
+    /// memory. This is operator-visible and considered acceptable
+    /// for now; a bound can be added later as a one-line check on
+    /// the producer side.
+    #[derive(Component, Debug, Clone, Default, Reflect)]
+    pub struct PendingTermInput {
+        /// Spans queued for the target. Re-emitted as the `writes`
+        /// payload of a [`TermInputMsg`] when drained.
+        pub writes: Vec<TermWrite>,
+    }
+
+    /// Pending [`TermScrollMsg`] delta queued on a target whose
+    /// [`TermInfo`] could not be resolved when the message was
+    /// processed.
+    ///
+    /// Producers attach this component instead of dropping the
+    /// message; the `drain_pending` system re-emits a [`TermScrollMsg`]
+    /// once the target's prerequisites resolve. Multiple queued
+    /// scrolls against the same target accumulate in `delta`.
+    #[derive(Component, Debug, Clone, Default, Reflect)]
+    pub struct PendingTermScroll {
+        /// Accumulated signed line delta. Re-emitted as the `delta`
+        /// of a [`TermScrollMsg`] when drained.
+        pub delta: isize,
+    }
+
     /// Notification that focus on a terminal entity changed.
     ///
     /// Stub; no producer or consumer wired up yet.

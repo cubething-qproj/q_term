@@ -6,3 +6,4 @@ mod ordering;
 mod pending_input;
 mod pending_input_cap;
 mod pending_scroll;
+mod row_target_invariant;

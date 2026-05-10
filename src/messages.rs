@@ -199,6 +199,26 @@ pub fn apply_reflow(
             Ok(t) => t,
             Err(_) => continue,
         };
+        // Bail before touching any row state when the terminal has
+        // no displayable area. Despawning rows here -- as we used to
+        // do unconditionally -- trips Bevy's relationship on_replace
+        // hook (`bevy_ecs::relationship::Relationship::on_replace`):
+        // when a `VtRowTarget` collection is drained the component
+        // is removed from the line entity. The early-exit then skips
+        // `flow_line`, leaving every `VtLine` without a
+        // `VtRowTarget` and the per-frame `r!()` bail at
+        // `q_term/active/src/data.rs:40` fires forever.
+        //
+        // The first `TermReflowMsg` after `Terminal` spawn always
+        // carries size 0x0 (the `#[require(VtSize)]` default fires
+        // `VtSize::on_insert` before `resize` has a real layout to
+        // measure), so this path is hit on every cold start. Holding
+        // the despawn until we know we will rebuild keeps the
+        // invariant intact through the size-0 transient; when a real
+        // size lands the next reflow despawns and rebuilds normally.
+        if terminfo.size.cols == 0 || terminfo.size.rows == 0 {
+            continue;
+        }
         // clear terminal display cache (only rows belonging to this terminal)
         for (line_id, _) in terminfo.lines(&q_lines) {
             if let Ok(row_target) = q_rowtargets.get(line_id) {
@@ -208,10 +228,6 @@ pub fn apply_reflow(
             }
         }
         commands.entity(target).despawn_related::<VtViewport>();
-        // exit early if nothing to do
-        if terminfo.size.cols == 0 || terminfo.size.rows == 0 {
-            continue;
-        }
         // reflow
         let rows = terminfo
             .lines(&q_lines)

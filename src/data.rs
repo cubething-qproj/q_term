@@ -622,10 +622,21 @@ mod events {
         }
     }
 
-    /// Maximum total bytes of queued text per target. Pushes that would
-    /// exceed this evict oldest [`TermWrite`] spans (whole-span FIFO)
-    /// until the new write fits, emitting a `warn!` per eviction.
-    pub const PENDING_TERM_INPUT_CAP_BYTES: usize = 1 << 20; // 1 MiB
+    /// Per-target byte cap for [`PendingTermInput`] queues. Default
+    /// 1 MiB. Override by inserting before [`TerminalPlugin`] runs or
+    /// by reassigning at runtime.
+    #[derive(Resource, Debug, Clone, Copy, Reflect)]
+    pub struct PendingTermInputCap {
+        /// Maximum total bytes of `TermWrite::text` queued per target
+        /// before [`PendingTermInput::push_writes`] starts evicting
+        /// oldest spans (whole-span FIFO).
+        pub bytes: usize,
+    }
+    impl Default for PendingTermInputCap {
+        fn default() -> Self {
+            Self { bytes: 1 << 20 }
+        }
+    }
 
     /// Pending [`TermInputMsg`] writes queued on a target whose
     /// [`TermInfo`] could not be resolved when the message was
@@ -637,7 +648,7 @@ mod events {
     /// writes against the same target accumulate in `writes` to
     /// preserve write order.
     ///
-    /// The queue is bounded at [`PENDING_TERM_INPUT_CAP_BYTES`] total
+    /// The queue is bounded by [`PendingTermInputCap`] total
     /// `TermWrite::text` bytes. When a push would exceed the cap,
     /// oldest whole spans are evicted FIFO until the new content fits;
     /// the producer-side helper [`PendingTermInput::push_writes`]
@@ -651,10 +662,13 @@ mod events {
     }
     impl PendingTermInput {
         /// Push spans onto the queue, evicting oldest whole spans
-        /// (FIFO) when the queue would otherwise exceed
-        /// [`PENDING_TERM_INPUT_CAP_BYTES`] in total
-        /// `TermWrite::text` bytes. Returns the number of spans
-        /// evicted.
+        /// (FIFO) when the queue would otherwise exceed `cap_bytes`
+        /// in total `TermWrite::text` bytes. Returns the number of
+        /// spans evicted.
+        ///
+        /// `cap_bytes` is passed in by the caller. Producer systems
+        /// read it from `Res<`[`PendingTermInputCap`]`>`; tests pass
+        /// arbitrary values to exercise eviction behaviour.
         ///
         /// A single incoming span larger than the cap is still
         /// admitted (dropping it would silently lose mid-stream
@@ -663,13 +677,17 @@ mod events {
         ///
         /// Emits at most one `warn!` per call, summarising any
         /// eviction that occurred.
-        pub fn push_writes(&mut self, new: impl IntoIterator<Item = TermWrite>) -> usize {
+        pub fn push_writes(
+            &mut self,
+            new: impl IntoIterator<Item = TermWrite>,
+            cap_bytes: usize,
+        ) -> usize {
             let mut total: usize = self.writes.iter().map(|w| w.text.len()).sum();
             let mut evicted: usize = 0;
             for span in new {
                 total += span.text.len();
                 self.writes.push(span);
-                while total > PENDING_TERM_INPUT_CAP_BYTES && self.writes.len() > 1 {
+                while total > cap_bytes && self.writes.len() > 1 {
                     let popped = self.writes.remove(0);
                     total -= popped.text.len();
                     evicted += 1;
@@ -678,8 +696,7 @@ mod events {
             if evicted > 0 {
                 warn!(
                     evicted,
-                    cap_bytes = PENDING_TERM_INPUT_CAP_BYTES,
-                    "PendingTermInput exceeded cap; evicted oldest spans"
+                    cap_bytes, "PendingTermInput exceeded cap; evicted oldest spans"
                 );
             }
             evicted

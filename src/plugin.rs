@@ -41,6 +41,8 @@ impl Plugin for TerminalPlugin {
         app.add_message::<TermRedrawRequestedMsg>();
         app.add_message::<TermFocusChangedMsg>();
 
+        app.init_resource::<PendingTermInputCap>();
+
         app.add_systems(
             Update,
             (

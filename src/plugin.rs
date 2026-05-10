@@ -45,7 +45,13 @@ impl Plugin for TerminalPlugin {
             Update,
             (
                 (update_font, update_char_width, resize).in_set(TerminalSystems::Measure),
-                (process_input, apply_scroll, apply_reflow, scroll_viewport)
+                (
+                    drain_pending,
+                    process_input,
+                    apply_scroll,
+                    apply_reflow,
+                    scroll_viewport,
+                )
                     .chain()
                     .in_set(TerminalSystems::Process),
             )

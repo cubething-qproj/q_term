@@ -49,6 +49,10 @@ impl Plugin for TerminalPlugin {
                     .chain()
                     .in_set(TerminalSystems::Process),
             )
+                // Outer `.chain()` orders the `Measure` set before the
+                // `Process` set. The `TerminalSystems` enum carries no
+                // intrinsic ordering between sets, so this is
+                // load-bearing despite the inner chain inside `Process`.
                 .chain(),
         );
         app.add_systems(

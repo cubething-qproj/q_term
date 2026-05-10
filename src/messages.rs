@@ -55,6 +55,7 @@ pub fn process_input(
             }
         };
         let mut grid = Grid::new(&terminfo, &q_lines, &q_rows);
+        let cursor_before = grid.cursor();
         {
             let mut performer = AnsiPerformer::new(&mut grid);
             let mut stream = AnsiParser::new();
@@ -72,7 +73,12 @@ pub fn process_input(
         let cursor = grid.cursor();
         grid.sync(&mut commands);
         commands.write_message(TermBufferMutatedMsg::new(target));
-        commands.write_message(TermCursorMovedMsg::new(target, cursor));
+        if cursor.row != cursor_before.row
+            || cursor.col != cursor_before.col
+            || cursor.pending_wrap != cursor_before.pending_wrap
+        {
+            commands.write_message(TermCursorMovedMsg::new(target, cursor));
+        }
         commands.write_message(TermRedrawRequestedMsg::new(target));
     }
 }
@@ -108,12 +114,20 @@ pub fn apply_scroll(
             .scroll_pos
             .saturating_sub_signed(msg.delta)
             .clamp(0, num_rows.saturating_sub(terminfo.size.rows));
-        commands.entity(terminfo.id).insert(VtScrollPos(pos));
-        commands.write_message(TermRedrawRequestedMsg::new(msg.target));
+        if pos != terminfo.scroll_pos.0 {
+            commands.entity(terminfo.id).insert(VtScrollPos(pos));
+            commands.write_message(TermRedrawRequestedMsg::new(msg.target));
+        }
     }
     for msg in jumps.read() {
-        commands.entity(msg.target).insert(VtScrollPos(0));
-        commands.write_message(TermRedrawRequestedMsg::new(msg.target));
+        let terminfo = match q_terminfo.get(msg.target) {
+            Ok(t) => t,
+            Err(_) => continue,
+        };
+        if terminfo.scroll_pos.0 != 0 {
+            commands.entity(msg.target).insert(VtScrollPos(0));
+            commands.write_message(TermRedrawRequestedMsg::new(msg.target));
+        }
     }
 }
 

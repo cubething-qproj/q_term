@@ -13,11 +13,12 @@ use crate::prelude::*;
 ///
 /// Registered as the first system in [`TerminalSystems::Process`] so
 /// the re-emitted messages are observed by `process_input` and
-/// `apply_scroll` later in the same chain. Uses
-/// [`Commands::write_message`] to defer the write; a follow-up may
-/// migrate this to [`MessageWriter`].
+/// `apply_scroll` later in the same chain. Re-emits use
+/// [`MessageWriter`] system params; entity cleanup uses [`Commands`].
 pub fn drain_pending(
     mut commands: Commands,
+    mut input: MessageWriter<TermInputMsg>,
+    mut scroll: MessageWriter<TermScrollMsg>,
     q_terminfo: Query<TermInfo>,
     q_pending_input: Query<(Entity, &PendingTermInput)>,
     q_pending_scroll: Query<(Entity, &PendingTermScroll)>,
@@ -26,7 +27,7 @@ pub fn drain_pending(
     for (entity, pending) in &q_pending_input {
         if q_terminfo.get(entity).is_ok() {
             commands.entity(entity).remove::<PendingTermInput>();
-            commands.write_message(TermInputMsg {
+            input.write(TermInputMsg {
                 target: entity,
                 writes: pending.writes.clone(),
             });
@@ -35,7 +36,7 @@ pub fn drain_pending(
     for (entity, pending) in &q_pending_scroll {
         if q_terminfo.get(entity).is_ok() {
             commands.entity(entity).remove::<PendingTermScroll>();
-            commands.write_message(TermScrollMsg {
+            scroll.write(TermScrollMsg {
                 target: entity,
                 delta: pending.delta,
             });
@@ -55,6 +56,9 @@ pub fn drain_pending(
 pub fn process_input(
     mut messages: MessageReader<TermInputMsg>,
     mut commands: Commands,
+    mut buffer_mutated: MessageWriter<TermBufferMutatedMsg>,
+    mut cursor_moved: MessageWriter<TermCursorMovedMsg>,
+    mut redraw_requested: MessageWriter<TermRedrawRequestedMsg>,
     cap: Res<PendingTermInputCap>,
     q_terminfo: Query<TermInfo>,
     q_lines: Query<(Entity, &VtLine, &VtRowTarget)>,
@@ -100,14 +104,14 @@ pub fn process_input(
         }
         let cursor = grid.cursor();
         grid.sync(&mut commands);
-        commands.write_message(TermBufferMutatedMsg::new(target));
+        buffer_mutated.write(TermBufferMutatedMsg::new(target));
         if cursor.row != cursor_before.row
             || cursor.col != cursor_before.col
             || cursor.pending_wrap != cursor_before.pending_wrap
         {
-            commands.write_message(TermCursorMovedMsg::new(target, cursor));
+            cursor_moved.write(TermCursorMovedMsg::new(target, cursor));
         }
-        commands.write_message(TermRedrawRequestedMsg::new(target));
+        redraw_requested.write(TermRedrawRequestedMsg::new(target));
     }
 }
 
@@ -121,6 +125,7 @@ pub fn apply_scroll(
     mut scrolls: MessageReader<TermScrollMsg>,
     mut jumps: MessageReader<TermJumpToBottomMsg>,
     mut commands: Commands,
+    mut redraw_requested: MessageWriter<TermRedrawRequestedMsg>,
     q_terminfo: Query<TermInfo>,
     q_rows: Query<(Entity, &VtRow)>,
     q_rowtargets: Query<&VtRowTarget, With<VtLine>>,
@@ -151,7 +156,7 @@ pub fn apply_scroll(
             .clamp(0, num_rows.saturating_sub(terminfo.size.rows));
         if pos != terminfo.scroll_pos.0 {
             commands.entity(terminfo.id).insert(VtScrollPos(pos));
-            commands.write_message(TermRedrawRequestedMsg::new(msg.target));
+            redraw_requested.write(TermRedrawRequestedMsg::new(msg.target));
         }
     }
     for msg in jumps.read() {
@@ -161,7 +166,7 @@ pub fn apply_scroll(
         };
         if terminfo.scroll_pos.0 != 0 {
             commands.entity(msg.target).insert(VtScrollPos(0));
-            commands.write_message(TermRedrawRequestedMsg::new(msg.target));
+            redraw_requested.write(TermRedrawRequestedMsg::new(msg.target));
         }
     }
 }
@@ -176,6 +181,8 @@ pub fn apply_scroll(
 pub fn apply_reflow(
     mut messages: MessageReader<TermReflowMsg>,
     mut commands: Commands,
+    mut buffer_mutated: MessageWriter<TermBufferMutatedMsg>,
+    mut redraw_requested: MessageWriter<TermRedrawRequestedMsg>,
     q_terminfo: Query<TermInfo>,
     q_lines: Query<(Entity, &VtLine)>,
     q_rowtargets: Query<&VtRowTarget, With<VtLine>>,
@@ -222,8 +229,8 @@ pub fn apply_reflow(
         for id in row_ids.into_iter().rev() {
             commands.entity(id).insert(VtViewportRow::new(terminfo.id));
         }
-        commands.write_message(TermBufferMutatedMsg::new(target));
-        commands.write_message(TermRedrawRequestedMsg::new(target));
+        buffer_mutated.write(TermBufferMutatedMsg::new(target));
+        redraw_requested.write(TermRedrawRequestedMsg::new(target));
     }
 }
 

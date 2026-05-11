@@ -5,11 +5,14 @@
 #   "typer>=0.12",
 # ]
 # ///
-"""Run ``bevy_lint`` with the right sysroot and isolated target dir.
+"""Run ``bevy lint`` with the right sysroot and isolated target dir.
 
 Invocation:
   just bevy-lint [CARGO_ARGS...]
   uv run --script infra/main/scripts/bevy_lint.py -- [CARGO_ARGS...]
+
+Invokes the ``lint`` subcommand of the ``bevy`` CLI (provided by the upstream
+bevy_cli flake), which dispatches to ``bevy_lint_driver``.
 
 Sets ``RUSTC_WRAPPER=`` (disables sccache, which conflicts with bevy_lint's
 custom driver) and ``BEVY_LINT_SYSROOT`` to the active toolchain's sysroot.
@@ -37,9 +40,9 @@ app = typer.Typer(
 
 @app.command()
 def main(ctx: typer.Context) -> None:
-    """Run ``bevy_lint --all-features --target-dir=target/bevy_lint``."""
+    """Run ``bevy lint --all-features --target-dir=target/bevy_lint``."""
     result = _common.run(
-        ["bevy_lint", "--all-features", "--target-dir=target/bevy_lint", *ctx.args],
+        ["bevy", "lint", "--all-features", "--target-dir=target/bevy_lint", *ctx.args],
         env_overrides={
             "RUSTC_WRAPPER": "",
             "BEVY_LINT_SYSROOT": _common.rustc_sysroot(),

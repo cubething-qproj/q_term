@@ -6,40 +6,40 @@ scripts := parent_directory(canonicalize(justfile())) / "scripts"
 
 # Build the workspace.
 build *args:
-    {{scripts}}/build.sh {{args}}
+    {{scripts}}/build.py {{args}}
 
 # Run the application.
 play *args:
-    {{scripts}}/play.sh {{args}}
+    {{scripts}}/play.py {{args}}
 
 # Lint with Clippy and bevy_lint.
 check *args:
-    {{scripts}}/check.sh {{args}}
+    {{scripts}}/check.py {{args}}
 
 # Run clippy.
 clippy *args:
-    {{scripts}}/clippy.sh {{args}}
+    {{scripts}}/clippy.py {{args}}
 
 # Run bevy_lint.
 bevy-lint *args:
-    {{scripts}}/bevy-lint.sh {{args}}
+    {{scripts}}/bevy_lint.py {{args}}
 
 # Check dependencies with cargo-deny.
 deny:
-    {{scripts}}/deny.sh
+    {{scripts}}/deny.py
 
 # Run tests via cargo-nextest.
 test *args:
-    {{scripts}}/test.sh {{args}}
+    {{scripts}}/test.py {{args}}
 
 # Generate test coverage report.
 coverage *args:
-    {{scripts}}/coverage.sh {{args}}
+    {{scripts}}/coverage.py {{args}}
 
 # Fix all fixable issues.
 fix *args:
-    {{scripts}}/clippy.sh --fix {{args}}
+    {{scripts}}/clippy.py --fix {{args}}
 
 # Test CI locally with act.
 ci *args:
-    {{scripts}}/ci.sh {{args}}
+    {{scripts}}/ci.py {{args}}

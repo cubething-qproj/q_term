@@ -61,7 +61,19 @@ pub fn resize(
             LineHeight::Px(px) => *px,
             LineHeight::RelativeToFont(rel) => rel * font.font_size,
         };
-        let cols = (size.x / cw.value()).floor() as usize;
+        // The first `Changed<ComputedNode>` for a freshly-spawned `VtUi`
+        // can fire before character-width measurement / font loading
+        // have produced a real glyph metric, in which case `cw.value()`
+        // and/or `line_height` are still zero. `f32 as usize` saturates
+        // for non-finite values, so dividing by zero here would yield
+        // `cols = usize::MAX` and downstream `String::with_capacity` /
+        // `" ".repeat(...)` calls would panic with a capacity overflow.
+        // Bail until the next frame, when measurement has had a chance
+        // to populate real values.
+        let cw_value = cw.value();
+        c!(cw_value > 0.0);
+        c!(line_height > 0.0);
+        let cols = (size.x / cw_value).floor() as usize;
         let rows = (size.y / line_height).floor() as usize;
         commands
             .entity(vt_ui.target())

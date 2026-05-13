@@ -15,6 +15,7 @@ Invocation:
 Pins ``--target-dir=target/clippy`` so Clippy's incremental cache does not
 collide with plain ``cargo build`` or ``bevy_lint``.
 """
+
 from __future__ import annotations
 
 import sys
@@ -23,7 +24,6 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).parent))
 
 import _common  # noqa: E402
-
 import typer  # noqa: E402
 
 app = typer.Typer(

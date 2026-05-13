@@ -17,6 +17,7 @@ bevy_cli flake), which dispatches to ``bevy_lint_driver``.
 Sets ``RUSTC_WRAPPER=`` (disables sccache, which conflicts with bevy_lint's
 custom driver) and ``BEVY_LINT_SYSROOT`` to the active toolchain's sysroot.
 """
+
 from __future__ import annotations
 
 import sys
@@ -25,7 +26,6 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).parent))
 
 import _common  # noqa: E402
-
 import typer  # noqa: E402
 
 app = typer.Typer(
@@ -42,7 +42,15 @@ app = typer.Typer(
 def main(ctx: typer.Context) -> None:
     """Run ``bevy lint --all-features --target-dir=target/bevy_lint``."""
     result = _common.run(
-        ["bevy", "lint", "--all-features", "--target-dir=target/bevy_lint", *ctx.args],
+        [
+            "bevy",
+            "lint",
+            "--config",
+            'profile.dev.codegen-backend="llvm"',
+            "--all-features",
+            "--target-dir=target/bevy_lint",
+            *ctx.args,
+        ],
         env_overrides={
             "RUSTC_WRAPPER": "",
             "BEVY_LINT_SYSROOT": _common.rustc_sysroot(),

@@ -13,6 +13,7 @@ Invocation:
 
 Thin wrapper over ``cargo build``. All extra arguments are forwarded.
 """
+
 from __future__ import annotations
 
 import sys
@@ -21,7 +22,6 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).parent))
 
 import _common  # noqa: E402
-
 import typer  # noqa: E402
 
 app = typer.Typer(
@@ -37,7 +37,11 @@ app = typer.Typer(
 @app.command()
 def main(ctx: typer.Context) -> None:
     """Run ``cargo build`` with any forwarded arguments."""
-    result = _common.run(["cargo", "build", *ctx.args], check=False)
+    result = _common.run(
+        ["cargo", "build", *ctx.args],
+        check=False,
+        env_overrides={"RUSTC_WRAPPER": "sccache"},
+    )
     raise typer.Exit(result.returncode)
 
 

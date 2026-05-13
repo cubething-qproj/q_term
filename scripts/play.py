@@ -24,6 +24,7 @@ Remote mode (``$SSH_CLIENT`` set):
   loader + a /home/psync/lib RPATH, rsyncs libstd / libbevy_dylib to the
   psync server, and hands off to ``cubething_psync`` via uvx.
 """
+
 from __future__ import annotations
 
 import os
@@ -37,7 +38,6 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).parent))
 
 import _common  # noqa: E402
-
 import typer  # noqa: E402
 
 app = typer.Typer(
@@ -104,16 +104,27 @@ def _patch_elf_for_psync(target: Path) -> None:
     if not psync_ip:
         raise typer.BadParameter("PSYNC_SERVER_IP not set; required in SSH mode")
 
-    _common.run([
-        "rsync", "-avzr",
-        "-e", "/usr/bin/ssh -l psync -p 5022",
-        "-L", "--progress", "--mkpath",
-        str(dylib_path), str(stdlib_path),
-        f"{psync_ip}:/home/psync/lib",
-    ])
+    _common.run(
+        [
+            "rsync",
+            "-avzr",
+            "-e",
+            "/usr/bin/ssh -l psync -p 5022",
+            "-L",
+            "--progress",
+            "--mkpath",
+            str(dylib_path),
+            str(stdlib_path),
+            f"{psync_ip}:/home/psync/lib",
+        ]
+    )
 
-    _common.run(["patchelf", "--set-interpreter", "/lib64/ld-linux-x86-64.so.2", str(target)])
-    _common.run(["patchelf", "--replace-needed", libbevy, "libbevy_dylib.so", str(target)])
+    _common.run(
+        ["patchelf", "--set-interpreter", "/lib64/ld-linux-x86-64.so.2", str(target)]
+    )
+    _common.run(
+        ["patchelf", "--replace-needed", libbevy, "libbevy_dylib.so", str(target)]
+    )
     _common.run(["patchelf", "--set-rpath", "/home/psync/lib", str(target)])
 
 
@@ -197,10 +208,19 @@ def _resolve_nixgl(override: str | None) -> str:
             file=sys.stderr,
         )
     elif name == "nixVulkanNvidia":
-        print("  Enter the NVIDIA devshell: nix develop --impure ./infra/main#nvidia", file=sys.stderr)
-        print("  Or in .envrc:               use flake --impure ./infra/main#nvidia", file=sys.stderr)
+        print(
+            "  Enter the NVIDIA devshell: nix develop --impure ./infra/main#nvidia",
+            file=sys.stderr,
+        )
+        print(
+            "  Or in .envrc:               use flake --impure ./infra/main#nvidia",
+            file=sys.stderr,
+        )
     elif name == "nixVulkanIntel":
-        print("  Enter the default devshell: nix develop --impure ./infra/main", file=sys.stderr)
+        print(
+            "  Enter the default devshell: nix develop --impure ./infra/main",
+            file=sys.stderr,
+        )
     print(
         "  Override with -G <wrapper> or NIXGL=<wrapper>; disable with NO_NIXGL=1.",
         file=sys.stderr,
@@ -220,8 +240,12 @@ def _resolve_nixgl(override: str | None) -> str:
 @app.command()
 def main(
     ctx: typer.Context,
-    example: str | None = typer.Option(None, "-x", "--example", help="Cargo --example name."),
-    package: str | None = typer.Option(None, "-p", "--package", help="Cargo -p package."),
+    example: str | None = typer.Option(
+        None, "-x", "--example", help="Cargo --example name."
+    ),
+    package: str | None = typer.Option(
+        None, "-p", "--package", help="Cargo -p package."
+    ),
     build_args: str = typer.Option(
         "-F dylib", "-B", "--build-args", help="Extra args forwarded to `just build`."
     ),
@@ -232,10 +256,16 @@ def main(
         "", "-a", "--args", help="Args appended to the binary invocation."
     ),
     assets: Path | None = typer.Option(
-        None, "-A", "--assets", help="Override the assets directory (default: autodetected).",
+        None,
+        "-A",
+        "--assets",
+        help="Override the assets directory (default: autodetected).",
     ),
     nixgl_override: str | None = typer.Option(
-        None, "-G", "--nixgl", help="Force a specific nixGL wrapper (e.g. nixVulkanNvidia).",
+        None,
+        "-G",
+        "--nixgl",
+        help="Force a specific nixGL wrapper (e.g. nixVulkanNvidia).",
     ),
 ) -> None:
     """Build, then exec/relay the binary locally or to the psync host."""
@@ -258,22 +288,34 @@ def main(
             file_path = Path(f"target/debug/{package}")
 
     # Build via `just build`.
-    build_cmd = ["just", "build", *shlex.split(build_args), *cargo_package, *cargo_example]
+    build_cmd = [
+        "just",
+        "build",
+        *shlex.split(build_args),
+        *cargo_package,
+        *cargo_example,
+    ]
     _common.run(build_cmd)
 
-    target_path = (
-        Path(f"./target/debug/examples/{example}") if example else file_path
-    )
+    target_path = Path(f"./target/debug/examples/{example}") if example else file_path
 
     if os.environ.get("SSH_CLIENT"):
         _patch_elf_for_psync(target_path)
-        _common.run([
-            "uvx", "--from", "cubething_psync", "psync",
-            str(target_path),
-            "-e", env_vars,
-            "-a", cmd_args,
-            "-A", str(assets),
-        ])
+        _common.run(
+            [
+                "uvx",
+                "--from",
+                "cubething_psync",
+                "psync",
+                str(target_path),
+                "-e",
+                env_vars,
+                "-a",
+                cmd_args,
+                "-A",
+                str(assets),
+            ]
+        )
         return
 
     # Local exec path.

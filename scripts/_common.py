@@ -5,6 +5,7 @@ directory. Provides a ``run()`` subprocess wrapper that echoes the command
 (``set -x`` style) and a ``script_dir()`` / ``repo_root()`` pair so each
 script can locate its siblings without depending on cwd.
 """
+
 from __future__ import annotations
 
 import os
@@ -23,7 +24,9 @@ def echo(cmd: list[str], *, env_overrides: dict[str, str] | None = None) -> None
     """Print a shell-quoted preview of ``cmd`` to stderr (``set -x`` style)."""
     prefix = ""
     if env_overrides:
-        prefix = " ".join(f"{k}={shlex.quote(v)}" for k, v in env_overrides.items()) + " "
+        prefix = (
+            " ".join(f"{k}={shlex.quote(v)}" for k, v in env_overrides.items()) + " "
+        )
     print(f"+ {prefix}{shlex.join(cmd)}", file=sys.stderr, flush=True)
 
 

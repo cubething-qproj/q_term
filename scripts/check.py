@@ -15,6 +15,7 @@ Both linters use isolated target dirs (``target/clippy`` and
 ``target/bevy_lint``) so they can build in parallel without contention.
 Exits non-zero if either linter fails.
 """
+
 from __future__ import annotations
 
 import subprocess
@@ -24,10 +25,11 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).parent))
 
 import _common  # noqa: E402
-
 import typer  # noqa: E402
 
-app = typer.Typer(add_completion=False, context_settings={"help_option_names": ["-h", "--help"]})
+app = typer.Typer(
+    add_completion=False, context_settings={"help_option_names": ["-h", "--help"]}
+)
 
 
 @app.command()

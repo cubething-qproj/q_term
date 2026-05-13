@@ -14,6 +14,7 @@ Invocation:
 With no arguments, runs ``r --workspace`` (run all tests). With arguments,
 forwards them verbatim. Always pins ``--config-file=./.config/nextest.toml``.
 """
+
 from __future__ import annotations
 
 import sys
@@ -22,7 +23,6 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).parent))
 
 import _common  # noqa: E402
-
 import typer  # noqa: E402
 
 app = typer.Typer(
@@ -40,7 +40,7 @@ def main(ctx: typer.Context) -> None:
     """Run ``cargo nextest`` with the workspace nextest config."""
     base = ["cargo", "nextest", "--config-file=./.config/nextest.toml"]
     cmd = base + (ctx.args if ctx.args else ["r", "--workspace"])
-    result = _common.run(cmd, check=False)
+    result = _common.run(cmd, check=False, env_overrides={"RUSTC_WRAPPER": "sccache"})
     raise typer.Exit(result.returncode)
 
 

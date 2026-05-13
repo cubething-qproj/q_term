@@ -14,6 +14,7 @@ Configured in the editor as the ``check.overrideCommand`` so RA shows
 both Clippy lints and bevy_lint lints as inline diagnostics. Each linter
 gets an isolated target dir to avoid step-on-toes incremental rebuilds.
 """
+
 from __future__ import annotations
 
 import subprocess
@@ -23,7 +24,6 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).parent))
 
 import _common  # noqa: E402
-
 import typer  # noqa: E402
 
 app = typer.Typer(
@@ -43,7 +43,9 @@ def main(ctx: typer.Context) -> None:
 
     clippy_rc = subprocess.run(
         [
-            "cargo", "clippy", "--all-features",
+            "cargo",
+            "clippy",
+            "--all-features",
             "--target-dir=target/ra-clippy",
             "--message-format=json-diagnostic-rendered-ansi",
             *extra,
@@ -53,12 +55,12 @@ def main(ctx: typer.Context) -> None:
 
     bevy_rc = _common.run(
         [
-            "bevy_lint", "--all-features",
+            "bevy_lint",
+            "--all-features",
             "--target-dir=target/ra-bevy-lint",
             "--message-format=json-diagnostic-rendered-ansi",
             *extra,
         ],
-        env_overrides={"RUSTC_WRAPPER": ""},
         check=False,
         stderr=subprocess.DEVNULL,
     ).returncode

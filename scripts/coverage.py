@@ -15,6 +15,7 @@ Invocation:
 Forces ``RUSTFLAGS=-Zcodegen-backend=llvm`` so the cranelift backend (default
 in our nightly devshell) is bypassed for the instrumented build.
 """
+
 from __future__ import annotations
 
 import sys
@@ -23,7 +24,6 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).parent))
 
 import _common  # noqa: E402
-
 import typer  # noqa: E402
 
 app = typer.Typer(

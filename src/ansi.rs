@@ -184,6 +184,11 @@ impl<'a> Grid<'a> {
         }
     }
 
+    /// Snapshot the grid's current cursor.
+    pub(crate) fn cursor(&self) -> VtCursor {
+        self.cursor
+    }
+
     fn visible_lines_as_string(&self, to_write: Option<char>) -> String {
         self.visible_rows()
             .iter()
@@ -263,7 +268,7 @@ impl<'a> Grid<'a> {
         assert_cursor_in_view!(self);
     }
     pub fn increment_line(&mut self) {
-        self.cursor.row = (self.cursor.row + 1).clamp(0, self.rows - 1);
+        self.cursor.row = (self.cursor.row + 1).clamp(0, self.rows.saturating_sub(1));
         assert_cursor_in_view!(self);
     }
     pub fn decrement_line(&mut self) {

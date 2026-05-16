@@ -8,12 +8,8 @@ pub mod prelude {
 }
 
 use bevy::{
-    image::TextureAtlasPlugin,
-    input::InputPlugin,
-    picking::PickingSettings,
-    render::texture::TexturePlugin,
-    text::TextPlugin,
-    ui::UiPlugin,
+    image::TextureAtlasPlugin, input::InputPlugin, picking::PickingSettings,
+    render::texture::TexturePlugin, text::TextPlugin, ui::UiPlugin,
 };
 use prelude::*;
 

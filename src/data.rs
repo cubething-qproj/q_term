@@ -42,16 +42,37 @@ mod terminfo {
             })
         }
 
-        #[inline(always)]
-        pub fn mutate(&self, commands: &mut Commands, msg: TermMsgKind) {
-            commands.write_message(TermMsg::new(self.id, msg));
+        /// Write text into this terminal's buffer. Supports ANSI.
+        pub fn write(&self, commands: &mut Commands, value: impl ToString) {
+            commands.write_message(TermInputMsg::write(self.id, value));
+        }
+        /// Write rich text spans into this terminal's buffer.
+        pub fn write_spans(&self, commands: &mut Commands, spans: Vec<TermWrite>) {
+            commands.write_message(TermInputMsg::write_spans(self.id, spans));
         }
 
-        pub fn write(&self, commands: &mut Commands, value: impl ToString) {
-            commands.write_message(TermMsg::write(self.id, value));
+        /// Write text into this terminal's buffer via a [`MessageWriter`].
+        /// Supports ANSI. Use this in hot-path systems; for lifecycle
+        /// hooks, observers, and external callers without a
+        /// [`MessageWriter`] system param, use [`Self::write`].
+        pub fn write_via(
+            &self,
+            writer: &mut MessageWriter<TermInputMsg>,
+            value: impl ToString,
+        ) {
+            writer.write(TermInputMsg::write(self.id, value));
         }
-        pub fn write_spans(&self, commands: &mut Commands, spans: Vec<TermWrite>) {
-            commands.write_message(TermMsg::write_spans(self.id, spans));
+
+        /// Write rich text spans into this terminal's buffer via a
+        /// [`MessageWriter`]. Use this in hot-path systems; for lifecycle
+        /// hooks, observers, and external callers without a
+        /// [`MessageWriter`] system param, use [`Self::write_spans`].
+        pub fn write_spans_via(
+            &self,
+            writer: &mut MessageWriter<TermInputMsg>,
+            spans: Vec<TermWrite>,
+        ) {
+            writer.write(TermInputMsg::write_spans(self.id, spans));
         }
     }
 }
@@ -466,7 +487,9 @@ mod terminal {
     }
     impl VtSize {
         fn on_insert(mut world: DeferredWorld, ctx: HookContext) {
-            world.commands().write_message(TermMsg::reflow(ctx.entity));
+            world
+                .commands()
+                .write_message(TermReflowMsg::new(ctx.entity));
         }
     }
 }
@@ -475,66 +498,314 @@ pub use terminal::*;
 mod events {
     use super::*;
 
-    /// A mutation to send to the terminal window.
-    #[derive(Debug, Message, Reflect, Clone)]
-    pub struct TermMsg {
+    /// Request to write characters/spans into a terminal's buffer.
+    ///
+    /// The pipeline's authoritative input message: producers (the
+    /// shell, helper APIs on [`TermInfoItem`], tests) write these and
+    /// `process_input` drains them through the ANSI parser.
+    #[derive(Message, Debug, Clone, Reflect)]
+    pub struct TermInputMsg {
+        /// Target terminal entity.
         pub target: Entity,
-        pub kind: TermMsgKind,
-        pub(crate) retry_count: usize,
+        /// Spans to write into the buffer.
+        pub writes: Vec<TermWrite>,
     }
-    #[derive(Debug, Reflect, Clone)]
-    pub enum TermMsgKind {
-        /// Reflow the terminal. Modifes LineRefs.
-        Reflow,
-        /// Scroll in the given direction. A scroll position of 0 means you are
-        /// at the last line.
-        Scroll(isize),
-        /// Jump to the last line. Sets scroll value to 0.
-        JumpToBottom,
-        /// Write charaters to the screen.
-        Write(Vec<TermWrite>),
-    }
-    impl TermMsg {
-        pub fn new(term_id: Entity, kind: TermMsgKind) -> Self {
+    impl TermInputMsg {
+        /// Construct a [`TermInputMsg`] with arbitrary write spans.
+        pub fn new(target: Entity, writes: Vec<TermWrite>) -> Self {
+            Self { target, writes }
+        }
+        /// Writes text directly to the buffer. Supports ANSI. For a
+        /// rich-text based API, see [`Self::write_spans`].
+        pub fn write(target: Entity, value: impl ToString) -> Self {
+            let line = value.to_string();
             Self {
-                target: term_id,
-                kind,
-                retry_count: 0,
+                target,
+                writes: vec![TermWrite::new(line)],
             }
         }
-        pub fn scroll(term_id: Entity, direction: isize) -> Self {
-            Self::new(term_id, TermMsgKind::Scroll(direction))
-        }
-        pub fn jump_to_bottom(term_id: Entity) -> Self {
-            Self::new(term_id, TermMsgKind::JumpToBottom)
-        }
-        pub fn reflow(term_id: Entity) -> Self {
-            Self::new(term_id, TermMsgKind::Reflow)
-        }
-        /// Writes text directly to the buffer. Supports ANSI. For a rich-text
-        /// based API, see [Self::write_spans]
-        pub fn write(term_id: Entity, spans: impl ToString) -> Self {
-            let line = spans.to_string();
-            Self::new(term_id, TermMsgKind::Write(vec![TermWrite::new(line)]))
-        }
-        /// Writes a simple line to the buffer. Supports ANSI. Will append a
-        /// newline at the end. Will clear styles before and after writing. For
-        /// rich text support, see [Self::write_spans]
-        pub fn writeln(term_id: Entity, line: impl ToString) -> Self {
+        /// Writes a simple line to the buffer. Supports ANSI. Will
+        /// append a newline at the end. Will clear styles before and
+        /// after writing. For rich text support, see
+        /// [`Self::write_spans`].
+        pub fn writeln(target: Entity, line: impl ToString) -> Self {
             let line = line.to_string();
-            Self::new(
-                term_id,
-                TermMsgKind::Write(vec![TermWrite::new(line + "\n").reset_style(true)]),
-            )
+            Self {
+                target,
+                writes: vec![TermWrite::new(line + "\n").reset_style(true)],
+            }
         }
-        /// Writes a rich line of text to the terminal. See [`TermWrite`] for
-        /// more detail.
-        pub fn write_spans(term_id: Entity, spans: Vec<TermWrite>) -> Self {
-            Self::new(term_id, TermMsgKind::Write(spans))
+        /// Writes a rich line of text to the terminal. See
+        /// [`TermWrite`] for more detail.
+        pub fn write_spans(target: Entity, spans: Vec<TermWrite>) -> Self {
+            Self {
+                target,
+                writes: spans,
+            }
+        }
+    }
+
+    /// Request to scroll a terminal viewport by `delta` lines.
+    #[derive(Message, Debug, Clone, Reflect)]
+    pub struct TermScrollMsg {
+        /// Target terminal entity.
+        pub target: Entity,
+        /// Signed line delta. Positive scrolls toward older content.
+        pub delta: isize,
+    }
+    impl TermScrollMsg {
+        /// Construct a [`TermScrollMsg`].
+        pub fn new(target: Entity, delta: isize) -> Self {
+            Self { target, delta }
+        }
+    }
+
+    /// Request to jump a terminal viewport to the bottom.
+    #[derive(Message, Debug, Clone, Reflect)]
+    pub struct TermJumpToBottomMsg {
+        /// Target terminal entity.
+        pub target: Entity,
+    }
+    impl TermJumpToBottomMsg {
+        /// Construct a [`TermJumpToBottomMsg`].
+        pub fn new(target: Entity) -> Self {
+            Self { target }
+        }
+    }
+
+    /// Request to reflow a terminal's buffer to the current viewport.
+    #[derive(Message, Debug, Clone, Reflect)]
+    pub struct TermReflowMsg {
+        /// Target terminal entity.
+        pub target: Entity,
+    }
+    impl TermReflowMsg {
+        /// Construct a [`TermReflowMsg`].
+        pub fn new(target: Entity) -> Self {
+            Self { target }
+        }
+    }
+
+    /// Notification that a terminal's buffer was mutated.
+    #[derive(Message, Debug, Clone, Reflect)]
+    pub struct TermBufferMutatedMsg {
+        /// Target terminal entity.
+        pub target: Entity,
+    }
+    impl TermBufferMutatedMsg {
+        /// Construct a [`TermBufferMutatedMsg`].
+        pub fn new(target: Entity) -> Self {
+            Self { target }
+        }
+    }
+
+    /// Notification that a terminal's cursor moved.
+    #[derive(Message, Debug, Clone, Reflect)]
+    pub struct TermCursorMovedMsg {
+        /// Target terminal entity.
+        pub target: Entity,
+        /// Cursor position after the move.
+        pub pos: VtCursor,
+    }
+    impl TermCursorMovedMsg {
+        /// Construct a [`TermCursorMovedMsg`].
+        pub fn new(target: Entity, pos: VtCursor) -> Self {
+            Self { target, pos }
+        }
+    }
+
+    /// Request to redraw the terminal's UI representation.
+    #[derive(Message, Debug, Clone, Reflect)]
+    pub struct TermRedrawRequestedMsg {
+        /// Target terminal entity.
+        pub target: Entity,
+    }
+    impl TermRedrawRequestedMsg {
+        /// Construct a [`TermRedrawRequestedMsg`].
+        pub fn new(target: Entity) -> Self {
+            Self { target }
+        }
+    }
+
+    /// Per-target byte cap for [`PendingTermInput`] queues. Default
+    /// 1 MiB. Override by inserting before [`TerminalPlugin`] runs or
+    /// by reassigning at runtime.
+    #[derive(Resource, Debug, Clone, Copy, Reflect)]
+    pub struct PendingTermInputCap {
+        /// Maximum total bytes of `TermWrite::text` queued per target
+        /// before [`PendingTermInput::push_writes`] starts evicting
+        /// oldest spans (whole-span FIFO).
+        pub bytes: usize,
+    }
+    impl Default for PendingTermInputCap {
+        fn default() -> Self {
+            Self { bytes: 1 << 20 }
+        }
+    }
+
+    /// Pending [`TermInputMsg`] writes queued on a target whose
+    /// [`TermInfo`] could not be resolved when the message was
+    /// processed.
+    ///
+    /// Producers attach this component instead of dropping the
+    /// message; the `drain_pending` system re-emits a [`TermInputMsg`]
+    /// once the target's prerequisites resolve. Multiple queued
+    /// writes against the same target accumulate in `writes` to
+    /// preserve write order.
+    ///
+    /// The queue is bounded by [`PendingTermInputCap`] total
+    /// `TermWrite::text` bytes. When a push would exceed the cap,
+    /// oldest whole spans are evicted FIFO until the new content fits;
+    /// the producer-side helper [`PendingTermInput::push_writes`]
+    /// enforces this and emits a single `warn!` per call summarising
+    /// any eviction.
+    #[derive(Component, Debug, Clone, Default, Reflect)]
+    pub struct PendingTermInput {
+        /// Spans queued for the target. Re-emitted as the `writes`
+        /// payload of a [`TermInputMsg`] when drained.
+        pub writes: Vec<TermWrite>,
+    }
+    impl PendingTermInput {
+        /// Push spans onto the queue, evicting oldest whole spans
+        /// (FIFO) when the queue would otherwise exceed `cap_bytes`
+        /// in total `TermWrite::text` bytes. Returns the number of
+        /// spans evicted.
+        ///
+        /// `cap_bytes` is passed in by the caller. Producer systems
+        /// read it from `Res<`[`PendingTermInputCap`]`>`; tests pass
+        /// arbitrary values to exercise eviction behaviour.
+        ///
+        /// A single incoming span larger than the cap is still
+        /// admitted (dropping it would silently lose mid-stream
+        /// data); the eviction loop will drain every other span
+        /// from the queue in that case.
+        ///
+        /// Emits at most one `warn!` per call, summarising any
+        /// eviction that occurred.
+        pub fn push_writes(
+            &mut self,
+            new: impl IntoIterator<Item = TermWrite>,
+            cap_bytes: usize,
+        ) -> usize {
+            let mut total: usize = self.writes.iter().map(|w| w.text.len()).sum();
+            let mut evicted: usize = 0;
+            for span in new {
+                total += span.text.len();
+                self.writes.push(span);
+                while total > cap_bytes && self.writes.len() > 1 {
+                    let popped = self.writes.remove(0);
+                    total -= popped.text.len();
+                    evicted += 1;
+                }
+            }
+            if evicted > 0 {
+                warn!(
+                    evicted,
+                    cap_bytes, "PendingTermInput exceeded cap; evicted oldest spans"
+                );
+            }
+            evicted
+        }
+    }
+
+    /// Pending [`TermScrollMsg`] delta queued on a target whose
+    /// [`TermInfo`] could not be resolved when the message was
+    /// processed.
+    ///
+    /// Producers attach this component instead of dropping the
+    /// message; the `drain_pending` system re-emits a [`TermScrollMsg`]
+    /// once the target's prerequisites resolve. Multiple queued
+    /// scrolls against the same target accumulate in `delta`.
+    #[derive(Component, Debug, Clone, Default, Reflect)]
+    pub struct PendingTermScroll {
+        /// Accumulated signed line delta. Re-emitted as the `delta`
+        /// of a [`TermScrollMsg`] when drained.
+        pub delta: isize,
+    }
+    impl PendingTermScroll {
+        /// Accumulate a signed line delta with saturating semantics.
+        /// Use this rather than `delta += new` to avoid overflow on
+        /// pathological pending accumulations.
+        pub fn add_delta(&mut self, new: isize) {
+            self.delta = self.delta.saturating_add(new);
+        }
+    }
+
+    /// Notification that focus on a terminal entity changed.
+    ///
+    /// Stub; no producer or consumer wired up yet.
+    #[derive(Message, Debug, Clone, Reflect)]
+    pub struct TermFocusChangedMsg {
+        /// Target terminal entity.
+        pub target: Entity,
+        /// `true` when the terminal gained focus, `false` when it lost it.
+        pub focused: bool,
+    }
+    impl TermFocusChangedMsg {
+        /// Construct a [`TermFocusChangedMsg`].
+        pub fn new(target: Entity, focused: bool) -> Self {
+            Self { target, focused }
         }
     }
 }
 pub use events::*;
+
+mod command {
+    use super::*;
+    use std::fmt::Debug;
+
+    /// Generic command bus message addressed to a terminal entity.
+    ///
+    /// Reserves the contract that downstream consumers hook into. Production
+    /// and consumption happen in [`TerminalSystems::Input`]; the writer->reader
+    /// pair lives in the same schedule so messages are observed within a single
+    /// frame.
+    ///
+    /// `q_term` ships only the data shape here. Convenience surfaces
+    /// such as `println` deliberately live on the `shell` side via
+    /// extension traits or wrapper types — the formatting policy and
+    /// any redirection into [`TermInputMsg`] is shell scope, not
+    /// terminal scope.
+    ///
+    /// `q_term` does NOT register any concrete `CommandMsg<T>`;
+    /// consumers call [`register_command_msg`] for the `T`s they
+    /// need.
+    #[derive(Message, Debug, Clone, Reflect)]
+    pub struct CommandMsg<T>
+    where
+        T: Reflect + TypePath + Clone + Debug + Send + Sync + 'static,
+    {
+        /// Terminal entity the command is addressed to.
+        pub target: Entity,
+        /// Command payload. Concrete `T` is owned by the consumer.
+        pub command: T,
+    }
+
+    impl<T> CommandMsg<T>
+    where
+        T: Reflect + TypePath + Clone + Debug + Send + Sync + 'static,
+    {
+        /// Construct a [`CommandMsg`] addressed to `target`.
+        pub fn new(target: Entity, command: T) -> Self {
+            Self { target, command }
+        }
+    }
+
+    /// Register `CommandMsg<T>` as a Bevy message on `app`.
+    ///
+    /// Canonical registration point for generic command messages.
+    /// `q_term::TerminalPlugin` does not register any specific `T`
+    /// because the set of payload types is owned by downstream
+    /// consumers (`shell`, `quell`, application code). Each consumer
+    /// calls this helper once per `T` it cares about.
+    pub fn register_term_cmd<T>(app: &mut App)
+    where
+        T: Reflect + TypePath + Clone + Debug + Send + Sync + 'static,
+    {
+        app.add_message::<CommandMsg<T>>();
+    }
+}
+pub use command::*;
 
 pub mod helpers {
     use super::*;

@@ -55,11 +55,7 @@ mod terminfo {
         /// Supports ANSI. Use this in hot-path systems; for lifecycle
         /// hooks, observers, and external callers without a
         /// [`MessageWriter`] system param, use [`Self::write`].
-        pub fn write_via(
-            &self,
-            writer: &mut MessageWriter<TermInputMsg>,
-            value: impl ToString,
-        ) {
+        pub fn write_via(&self, writer: &mut MessageWriter<TermInputMsg>, value: impl ToString) {
             writer.write(TermInputMsg::write(self.id, value));
         }
 

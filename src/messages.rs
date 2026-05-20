@@ -72,10 +72,9 @@ pub fn process_input(
     let cap_bytes = cap.bytes;
     for (target, writes) in to_write {
         let terminfo = match q_terminfo.get(target) {
-            Ok(t) => t,
-            Err(_) => {
-                let writes_owned: Vec<TermWrite> =
-                    writes.iter().map(|w| (*w).clone()).collect();
+            Ok(t) if t.size.cols > 0 && t.size.rows > 0 => t,
+            _ => {
+                let writes_owned: Vec<TermWrite> = writes.iter().map(|w| (*w).clone()).collect();
                 commands
                     .entity(target)
                     .entry::<PendingTermInput>()

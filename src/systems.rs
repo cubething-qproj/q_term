@@ -1,4 +1,7 @@
-use bevy::{input::mouse::MouseScrollUnit, text::LineHeight};
+use bevy::{
+    input::mouse::MouseScrollUnit,
+    text::{LineHeight, TextLayoutInfo},
+};
 use itertools::Itertools;
 
 use crate::prelude::*;
@@ -28,29 +31,27 @@ pub fn update_font(
 /// Measure the character width of the monospace font by using a detached,
 /// invisible Node containing a single Text(" ")
 pub fn update_char_width(
-    q: Query<(Entity, &ComputedNode, &VtCharWidth), Changed<ComputedNode>>,
+    q: Query<(Entity, &ComputedNode, &VtCharWidth), Changed<TextLayoutInfo>>,
     mut commands: Commands,
 ) {
-    trace!("update_char_width");
     for (entity, node, cw) in q {
+        debug!("update_char_width => {:?}", node.size().x);
         commands
             .entity(entity)
-            .insert(VtCharWidth::new(cw.target(), node.content_size().x));
+            .insert(VtCharWidth::new(cw.target(), node.size().x));
     }
 }
 
 pub fn resize(
-    q_ui: Query<
-        (
-            &VtUi,
-            &ComputedNode,
-            &TextFont,
-            &LineHeight,
-            &VtCharWidthTarget,
-        ),
-        Changed<ComputedNode>,
-    >,
+    q_ui: Query<(
+        &VtUi,
+        &ComputedNode,
+        &TextFont,
+        &LineHeight,
+        &VtCharWidthTarget,
+    )>,
     q_width: Query<&VtCharWidth>,
+    q_size: Query<&VtSize>,
     mut commands: Commands,
 ) {
     trace!("resize");
@@ -61,20 +62,18 @@ pub fn resize(
             LineHeight::Px(px) => *px,
             LineHeight::RelativeToFont(rel) => rel * font.font_size,
         };
-        // The first `Changed<ComputedNode>` for a freshly-spawned `VtUi`
-        // can fire before character-width measurement / font loading
-        // have produced a real glyph metric, in which case `cw.value()`
-        // and/or `line_height` are still zero. `f32 as usize` saturates
-        // for non-finite values, so dividing by zero here would yield
-        // `cols = usize::MAX` and downstream `String::with_capacity` /
-        // `" ".repeat(...)` calls would panic with a capacity overflow.
-        // Bail until the next frame, when measurement has had a chance
-        // to populate real values.
         let cw_value = cw.value();
         c!(cw_value > 0.0);
         c!(line_height > 0.0);
         let cols = (size.x / cw_value).floor() as usize;
         let rows = (size.y / line_height).floor() as usize;
+        let target = vt_ui.target();
+        if let Ok(current) = q_size.get(target)
+            && current.cols == cols
+            && current.rows == rows
+        {
+            continue;
+        }
         commands
             .entity(vt_ui.target())
             .insert(VtSize { cols, rows });

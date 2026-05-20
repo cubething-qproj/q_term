@@ -157,6 +157,9 @@ impl<'a> Grid<'a> {
         q_lines: &'a Query<(Entity, &VtLine, &VtRowTarget)>,
         q_rows: &'a Query<(Entity, &VtRow)>,
     ) -> Self {
+        if terminfo.size.cols == 0 || terminfo.size.rows == 0 {
+            warn!("Creating empty grid.");
+        }
         let lines = q_lines
             .iter_many(terminfo.line_target.entities())
             .map(|(line_id, line, row_target)| {

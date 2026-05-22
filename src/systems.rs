@@ -35,10 +35,13 @@ pub fn update_char_width(
     mut commands: Commands,
 ) {
     for (entity, node, cw) in q {
-        debug!("update_char_width => {:?}", node.size().x);
+        // Convert physical -> logical pixels so this matches `LineHeight`
+        // and the logical-pixel UI size used in `resize`.
+        let width_logical = node.size().x * node.inverse_scale_factor();
+        debug!("update_char_width => {:?}", width_logical);
         commands
             .entity(entity)
-            .insert(VtCharWidth::new(cw.target(), node.size().x));
+            .insert(VtCharWidth::new(cw.target(), width_logical));
     }
 }
 
@@ -57,7 +60,12 @@ pub fn resize(
     trace!("resize");
     for (vt_ui, node, font, line_height, cw_target) in q_ui.iter() {
         let cw = c!(q_width.get(cw_target.entity()));
-        let size = node.size();
+        // `ComputedNode::size()` is in physical pixels; convert to logical
+        // pixels to match `LineHeight`/char-width units. Without this, a
+        // HiDPI display reports e.g. 2x the rows that actually fit, which
+        // makes `apply_scroll` clamp `max_scroll` to 0 and the viewport
+        // never moves.
+        let size = node.size() * node.inverse_scale_factor();
         let line_height = match line_height {
             LineHeight::Px(px) => *px,
             LineHeight::RelativeToFont(rel) => rel * font.font_size,
@@ -222,7 +230,6 @@ pub(crate) fn on_scroll(
             }
         }
     };
-    debug!("line_delta={line_delta:?} accum={acc:?}");
 
     // Accumulate fractional line deltas so trackpad pixel events (which are
     // routinely well under one line each) eventually trigger a scroll.

@@ -408,6 +408,40 @@ mod terminal {
     #[component(immutable)]
     pub struct VtScrollPos(pub usize);
 
+    /// Accumulator for fractional line scroll deltas (e.g. trackpad pixel events).
+    ///
+    /// Trackpads commonly emit many small `MouseScrollUnit::Pixel` events whose
+    /// converted line-delta is well under 1.0. Without accumulation those
+    /// deltas truncate to 0 when cast to `isize` and the viewport never moves.
+    /// `on_scroll` accumulates here and only emits a `TermScrollMsg` once the
+    /// magnitude crosses a whole line.
+    #[derive(Component, Debug, Reflect, Clone, Copy, Deref, Default)]
+    pub struct VtScrollAccumulator(pub f32);
+
+    /// Scroll sensitivity multipliers applied in `on_scroll` before
+    /// accumulation into [`VtScrollAccumulator`].
+    ///
+    /// Defaults: `line = 1.0`, `pixel = 3.0`. Trackpads in particular tend to
+    /// emit many sub-line pixel events; a multiplier > 1 keeps the gesture
+    /// from feeling sluggish. Override by inserting this resource before
+    /// [`TerminalPlugin`] runs, or by reassigning at runtime.
+    #[derive(Resource, Debug, Clone, Copy, Reflect)]
+    pub struct VtScrollSensitivity {
+        /// Multiplier for `MouseScrollUnit::Line` events.
+        pub line: f32,
+        /// Multiplier for `MouseScrollUnit::Pixel` events (post line-height
+        /// normalization).
+        pub pixel: f32,
+    }
+    impl Default for VtScrollSensitivity {
+        fn default() -> Self {
+            Self {
+                line: 1.0,
+                pixel: 3.0,
+            }
+        }
+    }
+
     /// Visible layout for the terminal.
     /// The terminal's layout grid. Contains references to entities which should
     /// contain [`VtRow`] and [`VtViewportRow`] components.

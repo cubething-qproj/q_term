@@ -35,10 +35,13 @@ pub fn update_char_width(
     mut commands: Commands,
 ) {
     for (entity, node, cw) in q {
-        debug!("update_char_width => {:?}", node.size().x);
+        // Convert physical -> logical pixels so this matches `LineHeight`
+        // and the logical-pixel UI size used in `resize`.
+        let width_logical = node.size().x * node.inverse_scale_factor();
+        debug!("update_char_width => {:?}", width_logical);
         commands
             .entity(entity)
-            .insert(VtCharWidth::new(cw.target(), node.size().x));
+            .insert(VtCharWidth::new(cw.target(), width_logical));
     }
 }
 
@@ -57,7 +60,12 @@ pub fn resize(
     trace!("resize");
     for (vt_ui, node, font, line_height, cw_target) in q_ui.iter() {
         let cw = c!(q_width.get(cw_target.entity()));
-        let size = node.size();
+        // `ComputedNode::size()` is in physical pixels; convert to logical
+        // pixels to match `LineHeight`/char-width units. Without this, a
+        // HiDPI display reports e.g. 2x the rows that actually fit, which
+        // makes `apply_scroll` clamp `max_scroll` to 0 and the viewport
+        // never moves.
+        let size = node.size() * node.inverse_scale_factor();
         let line_height = match line_height {
             LineHeight::Px(px) => *px,
             LineHeight::RelativeToFont(rel) => rel * font.font_size,
@@ -197,21 +205,52 @@ pub fn refresh_ui(
 // todo: use input focus instead
 pub(crate) fn on_scroll(
     trigger: On<Pointer<Scroll>>,
-    q: Query<(&LineHeight, &TextFont, &VtUi)>,
+    mut q: Query<(
+        &LineHeight,
+        &TextFont,
+        &VtUi,
+        Option<&mut VtScrollAccumulator>,
+    )>,
+    sensitivity: Res<VtScrollSensitivity>,
     mut commands: Commands,
 ) {
-    let (line_height, text_font, ui) = r!(q.get(trigger.entity));
-    let delta = match trigger.unit {
-        MouseScrollUnit::Line => trigger.y,
+    let (line_height, text_font, ui, acc) = r!(q.get_mut(trigger.entity));
+    let line_delta = match trigger.unit {
+        MouseScrollUnit::Line => trigger.y * sensitivity.line,
         MouseScrollUnit::Pixel => {
             let line_height = match line_height {
                 LineHeight::Px(line_height) => *line_height,
                 LineHeight::RelativeToFont(rel) => rel * text_font.font_size,
             };
-            trigger.y / line_height
+            // Guard against zero/negative line height producing NaN/Inf.
+            if line_height > 0.0 {
+                (trigger.y / line_height) * sensitivity.pixel
+            } else {
+                0.0
+            }
         }
     };
-    commands.write_message(TermScrollMsg::new(ui.target(), delta as isize));
+
+    // Accumulate fractional line deltas so trackpad pixel events (which are
+    // routinely well under one line each) eventually trigger a scroll.
+    let prev = acc.as_deref().map(|a| a.0).unwrap_or(0.0);
+    let total = prev + line_delta;
+    let whole = total.trunc();
+    let remainder = total - whole;
+
+    match acc {
+        Some(mut a) => a.0 = remainder,
+        None => {
+            commands
+                .entity(trigger.entity)
+                .insert(VtScrollAccumulator(remainder));
+        }
+    }
+
+    let whole_i = whole as isize;
+    if whole_i != 0 {
+        commands.write_message(TermScrollMsg::new(ui.target(), whole_i));
+    }
 }
 
 pub(crate) fn scroll_viewport(

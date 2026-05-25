@@ -279,6 +279,106 @@ impl<'a> Grid<'a> {
         assert_cursor_in_view!(self);
     }
 
+    pub fn erase_in_line(&mut self, mode: u16, style: VtCellStyle) {
+        let visible_rows = self.visible_rows();
+        let Some(&VisibleRowIndex { line_idx, row_idx }) = visible_rows.get(self.cursor.row) else {
+            return;
+        };
+        let Some(row_offset) = self
+            .lines
+            .get(line_idx)
+            .and_then(|l| l.rows.get(row_idx))
+            .map(|r| r.row.value().offset)
+        else {
+            return;
+        };
+        let abs_cursor = row_offset + self.cursor.col;
+        let row_end = row_offset + self.cols;
+        let (start, end) = match mode {
+            0 => (abs_cursor, row_end),
+            1 => (row_offset, abs_cursor + 1),
+            2 => (row_offset, row_end),
+            _ => {
+                warn!("EL mode {mode} not recognised");
+                return;
+            }
+        };
+        self.cursor.pending_wrap = false;
+        self.blank_cells(line_idx, start, end, style);
+    }
+
+    pub fn erase_in_display(&mut self, mode: u16, style: VtCellStyle) {
+        if mode > 2 {
+            warn!("ED mode {mode} not recognised");
+            return;
+        }
+        let visible_rows = self.visible_rows();
+        let cursor_row = self.cursor.row;
+        // Collect ops first so the mutating pass holds the only &mut to self.lines.
+        let ops: Vec<(usize, usize, usize)> = visible_rows
+            .iter()
+            .enumerate()
+            .filter_map(|(i, &VisibleRowIndex { line_idx, row_idx })| {
+                let row_offset = self
+                    .lines
+                    .get(line_idx)
+                    .and_then(|l| l.rows.get(row_idx))
+                    .map(|r| r.row.value().offset)?;
+                let row_end = row_offset + self.cols;
+                let abs_cursor = row_offset + self.cursor.col;
+                use std::cmp::Ordering::*;
+                let (start, end) = match (mode, i.cmp(&cursor_row)) {
+                    // mode 0: skip rows above cursor, partial on cursor row, full below.
+                    (0, Less) => return None,
+                    (0, Equal) => (abs_cursor, row_end),
+                    (0, Greater) => (row_offset, row_end),
+                    // mode 1: full above, partial on cursor row, skip below.
+                    (1, Less) => (row_offset, row_end),
+                    (1, Equal) => (row_offset, abs_cursor + 1),
+                    (1, Greater) => return None,
+                    // mode 2: every row, entirely.
+                    (2, _) => (row_offset, row_end),
+                    _ => return None,
+                };
+                Some((line_idx, start, end))
+            })
+            .collect();
+        self.cursor.pending_wrap = false;
+        for (line_idx, start, end) in ops {
+            self.blank_cells(line_idx, start, end, style);
+        }
+    }
+
+    /// Replace cells `[abs_start, abs_end)` in `lines[line_idx]` with
+    /// blank cells styled by `style`. Both bounds are clamped to the
+    /// logical line's current cell count -- short lines are not
+    /// padded. The line is promoted to `MaybeRef::Owned` so `sync()`
+    /// writes the result back to the world.
+    fn blank_cells(
+        &mut self,
+        line_idx: usize,
+        abs_start: usize,
+        abs_end: usize,
+        style: VtCellStyle,
+    ) {
+        let Some(gridline) = self.lines.get(line_idx) else {
+            return;
+        };
+        let cells_len = gridline.line.value().cells().len();
+        let start = abs_start.min(cells_len);
+        let end = abs_end.min(cells_len);
+        if start >= end {
+            return;
+        }
+        let entity = gridline.line.entity();
+        let gridline = self.lines.get_mut(line_idx).unwrap();
+        let mut cells = gridline.line.value().cells().to_vec();
+        for cell in &mut cells[start..end] {
+            *cell = VtCell::new(' ').with_style(style);
+        }
+        gridline.line = MaybeRef::Owned(entity, VtLine::from_cells(self.term_id, cells));
+    }
+
     /// Returns (line_idx, row_idx)
     /// row_idx is relative to the line
     fn visible_rows(&self) -> Vec<VisibleRowIndex> {
@@ -394,7 +494,7 @@ impl<'a> Grid<'a> {
             let line_id = match gridline.line {
                 MaybeRef::Owned(Some(entity), line) => commands.entity(entity).insert(line).id(),
                 MaybeRef::Owned(None, line) => commands.spawn(line).id(),
-                _ => continue,
+                MaybeRef::Borrowed(entity, _) => entity,
             };
             gridline
                 .rows
@@ -409,7 +509,7 @@ impl<'a> Grid<'a> {
                         MaybeRef::Owned(None, row) => {
                             commands.spawn(VtRow::new(line_id, row.offset)).id()
                         }
-                        _ => return,
+                        MaybeRef::Borrowed(entity, _) => entity,
                     };
                     if visible_rows.contains(&VisibleRowIndex { line_idx, row_idx }) {
                         commands
@@ -584,12 +684,22 @@ impl<'a, 'g> anstyle_parse::Perform for AnsiPerformer<'a, 'g> {
                 self.grid.cursor.row = (row - 1).min(self.grid.rows.saturating_sub(1));
                 self.grid.cursor.col = (col - 1).min(self.grid.cols.saturating_sub(1));
             }
-            // action if action == CsiAction::ED as u8 => {
-            //     self.actions.push(AnsiAction::Erase { mode: iter.next().unwrap_or(0) as usize });
-            // }
-            // action if action == CsiAction::EL as u8 => {
-            //     self.actions.push(AnsiAction::Erase { mode: iter.next().unwrap_or(0) as usize });
-            // }
+            // ED is 0-indexed (default 0), same as EL.
+            action if action == CsiAction::ED as u8 => {
+                let mode = param_iter
+                    .next()
+                    .and_then(|p| p.first().copied())
+                    .unwrap_or(0);
+                self.grid.erase_in_display(mode, self.style);
+            }
+            action if action == CsiAction::EL as u8 => {
+                // EL is 0-indexed (default 0), unlike CUU et al.
+                let mode = param_iter
+                    .next()
+                    .and_then(|p| p.first().copied())
+                    .unwrap_or(0);
+                self.grid.erase_in_line(mode, self.style);
+            }
             action if action == CsiAction::SGR as u8 => {
                 // SGR may contain multiple attributes in a single CSI
                 // sequence (e.g. \x1b[38;2;R;G;B;48;2;R;G;Bm), so we loop.

@@ -97,5 +97,5 @@ fn setup(mut commands: Commands) {
     }
     out.push_str("\x1b[0m\n");
 
-    commands.write_message(TermInputMsg::write(term_id, out));
+    commands.write_message(TermStdOut::write(term_id, out));
 }

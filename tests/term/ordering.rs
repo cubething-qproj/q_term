@@ -16,7 +16,7 @@ fn count_mutations(
     }
 }
 
-/// Verifies that a `TermInputMsg` written from `Startup` produces exactly
+/// Verifies that a `TermStdOut` written from `Startup` produces exactly
 /// one `TermBufferMutatedMsg` visible to a reader sitting after
 /// `process_input` in the `TerminalSystems::Process` chain on the same
 /// frame. Exercises the writer to reader seam inside `Process`.
@@ -32,7 +32,7 @@ fn process_chain_emits_buffer_mutated_in_order() {
         commands
             .entity(term_id)
             .insert(VtSize { cols: 80, rows: 24 });
-        commands.write_message(TermInputMsg::write(term_id, "x"));
+        commands.write_message(TermStdOut::write(term_id, "x"));
     });
 
     // Pin the reader strictly between `process_input` and the rest of the

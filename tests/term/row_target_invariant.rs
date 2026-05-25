@@ -58,26 +58,26 @@ fn vt_linetarget_entries_resolve_through_row_target_query() {
             active.0 = Some(term_id);
 
             for i in 0..20 {
-                commands.write_message(TermInputMsg::writeln(term_id, format!("{i}")));
+                commands.write_message(TermStdOut::writeln(term_id, format!("{i}")));
             }
-            commands.write_message(TermInputMsg::write(
+            commands.write_message(TermStdOut::write(
                 term_id,
                 "hello\nhere are multiple lines\n",
             ));
-            commands.write_message(TermInputMsg::write(
+            commands.write_message(TermStdOut::write(
                 term_id,
                 "\x1b[31mthis is red text \x1b[47mwith a white background!\n",
             ));
-            commands.write_message(TermInputMsg::write(term_id, "still red and white...\n"));
-            commands.write_message(TermInputMsg::write(term_id, "\x1b[0mbut no longer :)\n"));
-            commands.write_message(TermInputMsg::write_spans(
+            commands.write_message(TermStdOut::write(term_id, "still red and white...\n"));
+            commands.write_message(TermStdOut::write(term_id, "\x1b[0mbut no longer :)\n"));
+            commands.write_message(TermStdOut::write_spans(
                 term_id,
                 vec![
                     TermWrite::new("you can do multiple spans too, "),
                     TermWrite::new("with style\n"),
                 ],
             ));
-            commands.write_message(TermInputMsg::writeln(term_id, LONG_LINE));
+            commands.write_message(TermStdOut::writeln(term_id, LONG_LINE));
         },
     );
 
@@ -98,9 +98,7 @@ fn vt_linetarget_entries_resolve_through_row_target_query() {
             if frame == SET_VTSIZE_FRAME
                 && let Some(term) = active.0
             {
-                commands
-                    .entity(term)
-                    .insert(VtSize { cols: 80, rows: 24 });
+                commands.entity(term).insert(VtSize { cols: 80, rows: 24 });
             }
 
             let terminfo = r!(q_term.single());

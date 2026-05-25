@@ -52,6 +52,11 @@ enum CsiAction {
     ED = 0x4a,
     /// Erase around cursor.
     EL = 0x4b,
+    // reports
+    /// Device Status Report. `Ps=5` -> ready; `Ps=6` -> cursor position.
+    DSR = 0x6e,
+    /// Device Attributes (primary). `Ps=0` -> identify terminal.
+    DA = 0x63,
     // color
     /// SGR style escapes
     SGR = 0x6d,
@@ -523,15 +528,23 @@ impl<'a> Grid<'a> {
 
 /// Parses the passed [`VirtualTextSpanSpawner`], possibly expanding it into multiple
 /// and modifying various [`TerminalLine`]s.
-pub(crate) struct AnsiPerformer<'a, 'g> {
+pub(crate) struct AnsiPerformer<'a, 'g, 'w> {
     grid: &'a mut Grid<'g>,
     style: VtCellStyle,
     default_style: VtCellStyle,
+    writer: &'a mut MessageWriter<'w, TermStdIn>,
+    target: Entity,
 }
-impl<'a, 'g> AnsiPerformer<'a, 'g> {
-    pub fn new(grid: &'a mut Grid<'g>) -> Self {
+impl<'a, 'g, 'w> AnsiPerformer<'a, 'g, 'w> {
+    pub fn new(
+        grid: &'a mut Grid<'g>,
+        writer: &'a mut MessageWriter<'w, TermStdIn>,
+        target: Entity,
+    ) -> Self {
         Self {
             grid,
+            writer,
+            target,
             style: VtCellStyle::default(),
             default_style: VtCellStyle::default(),
         }
@@ -541,7 +554,7 @@ impl<'a, 'g> AnsiPerformer<'a, 'g> {
         self.style = style;
     }
 }
-impl<'a, 'g> anstyle_parse::Perform for AnsiPerformer<'a, 'g> {
+impl<'a, 'g, 'w> anstyle_parse::Perform for AnsiPerformer<'a, 'g, 'w> {
     fn print(&mut self, c: char) {
         trace!("print");
         self.grid.write(c, self.style);
@@ -597,7 +610,7 @@ impl<'a, 'g> anstyle_parse::Perform for AnsiPerformer<'a, 'g> {
     fn csi_dispatch(
         &mut self,
         params: &anstyle_parse::Params,
-        _intermediates: &[u8],
+        intermediates: &[u8],
         _ignore: bool,
         action: u8,
     ) {
@@ -699,6 +712,47 @@ impl<'a, 'g> anstyle_parse::Perform for AnsiPerformer<'a, 'g> {
                     .and_then(|p| p.first().copied())
                     .unwrap_or(0);
                 self.grid.erase_in_line(mode, self.style);
+            }
+            // DSR replies on the TermStdIn (reverse) channel. The wire
+            // protocol is 1-indexed; our internal cursor is 0-indexed,
+            // so we add 1 when serialising.
+            action if action == CsiAction::DSR as u8 => {
+                let mode = param_iter
+                    .next()
+                    .and_then(|p| p.first().copied())
+                    .unwrap_or(0);
+                match mode {
+                    5 => {
+                        // "Ready, no malfunctions detected."
+                        self.writer
+                            .write(TermStdIn::new(self.target, b"\x1b[0n".to_vec()));
+                    }
+                    6 => {
+                        let row = self.grid.cursor.row + 1;
+                        let col = self.grid.cursor.col + 1;
+                        let reply = format!("\x1b[{row};{col}R").into_bytes();
+                        self.writer.write(TermStdIn::new(self.target, reply));
+                    }
+                    _ => {}
+                }
+            }
+            // DA primary (CSI c / CSI 0 c). Secondary (CSI > c) and
+            // tertiary (CSI = c) arrive with `>` / `=` in intermediates
+            // and are out of scope here.
+            action if action == CsiAction::DA as u8 => {
+                if !intermediates.is_empty() {
+                    return;
+                }
+                let mode = param_iter
+                    .next()
+                    .and_then(|p| p.first().copied())
+                    .unwrap_or(0);
+                if mode == 0 {
+                    // VT220 base + ANSI color -- honest claim for what
+                    // the parser currently implements.
+                    self.writer
+                        .write(TermStdIn::new(self.target, b"\x1b[?62;22c".to_vec()));
+                }
             }
             action if action == CsiAction::SGR as u8 => {
                 // SGR may contain multiple attributes in a single CSI

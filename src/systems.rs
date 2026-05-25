@@ -166,8 +166,8 @@ pub fn refresh_ui(
     trace!("refresh_ui (spawn textspans)");
     let mut targets: Vec<Entity> = vec![];
     for msg in redraws.read() {
-        if !targets.contains(&msg.target) {
-            targets.push(msg.target);
+        if !targets.contains(&msg.term) {
+            targets.push(msg.term);
         }
     }
     for target in targets {

@@ -32,7 +32,9 @@ pub struct TerminalPlugin;
 
 impl Plugin for TerminalPlugin {
     fn build(&self, app: &mut App) {
-        app.add_message::<TermInputMsg>();
+        app.add_message::<TermStdOut>();
+        app.add_message::<TermStdErr>();
+        app.add_message::<TermStdIn>();
         app.add_message::<TermScrollMsg>();
         app.add_message::<TermJumpToBottomMsg>();
         app.add_message::<TermReflowMsg>();

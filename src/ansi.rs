@@ -281,39 +281,96 @@ impl<'a> Grid<'a> {
 
     pub fn erase_in_line(&mut self, mode: u16, style: VtCellStyle) {
         let visible_rows = self.visible_rows();
-        let Some(&VisibleRowIndex { line_idx, row_idx }) = visible_rows.get(self.cursor.row)
+        let Some(&VisibleRowIndex { line_idx, row_idx }) = visible_rows.get(self.cursor.row) else {
+            return;
+        };
+        let Some(row_offset) = self
+            .lines
+            .get(line_idx)
+            .and_then(|l| l.rows.get(row_idx))
+            .map(|r| r.row.value().offset)
         else {
             return;
         };
-        // Snapshot read state so the &mut borrow below is the only one live.
-        let (row_offset, cells_len, entity) = {
-            let Some(gridline) = self.lines.get(line_idx) else {
-                return;
-            };
-            let Some(row) = gridline.rows.get(row_idx) else {
-                return;
-            };
-            (
-                row.row.value().offset,
-                gridline.line.value().cells().len(),
-                gridline.line.entity(),
-            )
-        };
         let abs_cursor = row_offset + self.cursor.col;
-        let row_end = (row_offset + self.cols).min(cells_len);
+        let row_end = row_offset + self.cols;
         let (start, end) = match mode {
-            0 => (abs_cursor.min(cells_len), row_end),
-            1 => (row_offset, (abs_cursor + 1).min(cells_len)),
+            0 => (abs_cursor, row_end),
+            1 => (row_offset, abs_cursor + 1),
             2 => (row_offset, row_end),
             _ => {
-                info_once!("EL mode {mode} not recognised");
+                warn!("EL mode {mode} not recognised");
                 return;
             }
         };
         self.cursor.pending_wrap = false;
+        self.blank_cells(line_idx, start, end, style);
+    }
+
+    pub fn erase_in_display(&mut self, mode: u16, style: VtCellStyle) {
+        if mode > 2 {
+            warn!("ED mode {mode} not recognised");
+            return;
+        }
+        let visible_rows = self.visible_rows();
+        let cursor_row = self.cursor.row;
+        // Collect ops first so the mutating pass holds the only &mut to self.lines.
+        let ops: Vec<(usize, usize, usize)> = visible_rows
+            .iter()
+            .enumerate()
+            .filter_map(|(i, &VisibleRowIndex { line_idx, row_idx })| {
+                let row_offset = self
+                    .lines
+                    .get(line_idx)
+                    .and_then(|l| l.rows.get(row_idx))
+                    .map(|r| r.row.value().offset)?;
+                let row_end = row_offset + self.cols;
+                let abs_cursor = row_offset + self.cursor.col;
+                use std::cmp::Ordering::*;
+                let (start, end) = match (mode, i.cmp(&cursor_row)) {
+                    // mode 0: skip rows above cursor, partial on cursor row, full below.
+                    (0, Less) => return None,
+                    (0, Equal) => (abs_cursor, row_end),
+                    (0, Greater) => (row_offset, row_end),
+                    // mode 1: full above, partial on cursor row, skip below.
+                    (1, Less) => (row_offset, row_end),
+                    (1, Equal) => (row_offset, abs_cursor + 1),
+                    (1, Greater) => return None,
+                    // mode 2: every row, entirely.
+                    (2, _) => (row_offset, row_end),
+                    _ => return None,
+                };
+                Some((line_idx, start, end))
+            })
+            .collect();
+        self.cursor.pending_wrap = false;
+        for (line_idx, start, end) in ops {
+            self.blank_cells(line_idx, start, end, style);
+        }
+    }
+
+    /// Replace cells `[abs_start, abs_end)` in `lines[line_idx]` with
+    /// blank cells styled by `style`. Both bounds are clamped to the
+    /// logical line's current cell count -- short lines are not
+    /// padded. The line is promoted to `MaybeRef::Owned` so `sync()`
+    /// writes the result back to the world.
+    fn blank_cells(
+        &mut self,
+        line_idx: usize,
+        abs_start: usize,
+        abs_end: usize,
+        style: VtCellStyle,
+    ) {
+        let Some(gridline) = self.lines.get(line_idx) else {
+            return;
+        };
+        let cells_len = gridline.line.value().cells().len();
+        let start = abs_start.min(cells_len);
+        let end = abs_end.min(cells_len);
         if start >= end {
             return;
         }
+        let entity = gridline.line.entity();
         let gridline = self.lines.get_mut(line_idx).unwrap();
         let mut cells = gridline.line.value().cells().to_vec();
         for cell in &mut cells[start..end] {
@@ -627,10 +684,16 @@ impl<'a, 'g> anstyle_parse::Perform for AnsiPerformer<'a, 'g> {
                 self.grid.cursor.row = (row - 1).min(self.grid.rows.saturating_sub(1));
                 self.grid.cursor.col = (col - 1).min(self.grid.cols.saturating_sub(1));
             }
-            // ED (CSI J) -- pending in a subsequent step.
-            // action if action == CsiAction::ED as u8 => { ... }
+            // ED is 0-indexed (default 0), same as EL.
+            action if action == CsiAction::ED as u8 => {
+                let mode = param_iter
+                    .next()
+                    .and_then(|p| p.first().copied())
+                    .unwrap_or(0);
+                self.grid.erase_in_display(mode, self.style);
+            }
             action if action == CsiAction::EL as u8 => {
-                // EL is 0-index
+                // EL is 0-indexed (default 0), unlike CUU et al.
                 let mode = param_iter
                     .next()
                     .and_then(|p| p.first().copied())

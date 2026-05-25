@@ -660,3 +660,210 @@ fn cursor_write_arbitrary_positions() {
 
     assert!(app.run().is_success());
 }
+
+// ---------------------------------------------------------------------------
+// BS (0x08) and HT (0x09) — issue #21
+// ---------------------------------------------------------------------------
+
+/// Spawn a terminal with an explicit `VtTabStop` width, write `input`, then
+/// run `check` on the first step.
+fn ansi_test_with_tabstop(
+    cols: usize,
+    rows: usize,
+    tabstop: usize,
+    input: &'static str,
+    check: impl Fn(TermInfoItem, &[(Entity, &VtLine)], &mut Commands) -> bool + Send + Sync + 'static,
+) {
+    let mut app = get_test_app();
+    app.add_systems(Startup, move |mut commands: Commands| {
+        let term_id = commands.spawn(Terminal).id();
+        commands
+            .entity(term_id)
+            .insert(VtSize { cols, rows })
+            .insert(VtTabStop(tabstop));
+        commands.write_message(TermStdOut::write(term_id, input));
+    });
+    app.add_step(
+        0,
+        move |q_term: Query<TermInfo>,
+              q_lines: Query<(Entity, &VtLine)>,
+              mut commands: Commands| {
+            let terminfo = r!(q_term.single());
+            let lines: Vec<_> = terminfo.lines(&q_lines).collect();
+            if lines.is_empty() {
+                return;
+            }
+            if check(terminfo, &lines, &mut commands) {
+                commands.write_message(AppExit::Success);
+            } else {
+                commands.write_message(AppExit::error());
+            }
+        },
+    );
+    assert!(app.run().is_success());
+}
+
+/// BS moves the cursor left by one column. It is non-destructive: the cell
+/// under the previous cursor position is not erased.
+#[test]
+fn backspace_moves_cursor_left() {
+    ansi_test(80, 24, "AB\x08", |terminfo, lines, commands| {
+        let (_, line) = &lines[0];
+        r!(commands.assert(
+            line.as_string() == "AB",
+            format!("BS should not erase; line should be 'AB', got '{}'", line.as_string()),
+        ));
+        r!(commands.assert(
+            terminfo.cursor.col == 1,
+            format!("BS should move cursor to col 1, got {}", terminfo.cursor.col),
+        ))
+    });
+}
+
+/// BS is non-destructive; a subsequent print overwrites the cell at the new
+/// cursor position.
+#[test]
+fn backspace_then_print_overwrites() {
+    ansi_test(80, 24, "AB\x08C", |terminfo, lines, commands| {
+        let (_, line) = &lines[0];
+        r!(commands.assert(
+            line.as_string() == "AC",
+            format!("expected 'AC' (BS + overwrite), got '{}'", line.as_string()),
+        ));
+        r!(commands.assert(
+            terminfo.cursor.col == 2,
+            format!("cursor col after overwrite should be 2, got {}", terminfo.cursor.col),
+        ))
+    });
+}
+
+/// BS at column 0 clamps; it does not wrap to the previous line.
+#[test]
+fn backspace_at_col_zero_clamps() {
+    // "A\x08\x08": after 'A' cursor is at col 1; first BS → col 0; second
+    // BS must clamp (no underflow, no row wrap).
+    ansi_test(80, 24, "A\x08\x08", |terminfo, lines, commands| {
+        let (_, line) = &lines[0];
+        r!(commands.assert(
+            line.as_string() == "A",
+            format!("BS should not erase 'A'; got '{}'", line.as_string()),
+        ));
+        r!(commands.assert(
+            terminfo.cursor.col == 0,
+            format!("BS at col 0 should clamp to 0, got {}", terminfo.cursor.col),
+        ));
+        r!(commands.assert(
+            terminfo.cursor.row == 0,
+            format!("BS at col 0 should stay on row 0, got {}", terminfo.cursor.row),
+        ))
+    });
+}
+
+/// BS clears the pending-wrap latch. After filling the row, the next print
+/// would normally wrap to a new line; a BS before that print must cancel the
+/// wrap and overwrite the last cell of the same row.
+#[test]
+fn backspace_clears_pending_wrap() {
+    ansi_test(5, 24, "ABCDE\x08X", |terminfo, lines, commands| {
+        r!(commands.assert(
+            lines.len() == 1,
+            format!("BS should cancel pending wrap; expected 1 line, got {}", lines.len()),
+        ));
+        let (_, line) = &lines[0];
+        r!(commands.assert(
+            line.as_string() == "ABCDX",
+            format!("expected 'ABCDX', got '{}'", line.as_string()),
+        ));
+        r!(commands.assert(
+            terminfo.cursor.row == 0,
+            format!("cursor should stay on row 0, got {}", terminfo.cursor.row),
+        ))
+    });
+}
+
+/// HT from column 0 advances to the next 8-column tab stop (col 8).
+#[test]
+fn tab_from_col_zero() {
+    ansi_test(80, 24, "\tA", |terminfo, lines, commands| {
+        let (_, line) = &lines[0];
+        let cells = line.cells();
+        r!(commands.assert(
+            cells.get(8).map(|c| c.value) == Some('A'),
+            format!("HT should land 'A' at col 8, got line '{}'", line.as_string()),
+        ));
+        r!(commands.assert(
+            terminfo.cursor.col == 9,
+            format!("cursor col after 'A' should be 9, got {}", terminfo.cursor.col),
+        ))
+    });
+}
+
+/// HT from a non-aligned column advances to the next 8-column tab stop.
+#[test]
+fn tab_advances_to_next_stop() {
+    ansi_test(80, 24, "ABC\tX", |terminfo, lines, commands| {
+        let (_, line) = &lines[0];
+        let cells = line.cells();
+        r!(commands.assert(
+            cells.get(8).map(|c| c.value) == Some('X'),
+            format!("HT should land 'X' at col 8, got line '{}'", line.as_string()),
+        ));
+        r!(commands.assert(
+            terminfo.cursor.col == 9,
+            format!("cursor col after 'X' should be 9, got {}", terminfo.cursor.col),
+        ))
+    });
+}
+
+/// HT from a column already on a tab stop advances to the *next* stop.
+#[test]
+fn tab_already_on_stop_advances() {
+    ansi_test(80, 24, "01234567\tX", |terminfo, lines, commands| {
+        let (_, line) = &lines[0];
+        let cells = line.cells();
+        r!(commands.assert(
+            cells.get(16).map(|c| c.value) == Some('X'),
+            format!("HT on stop should land 'X' at col 16, got line '{}'", line.as_string()),
+        ));
+        r!(commands.assert(
+            terminfo.cursor.col == 17,
+            format!("cursor col after 'X' should be 17, got {}", terminfo.cursor.col),
+        ))
+    });
+}
+
+/// HT clamps to the last column when the next stop would exceed `cols - 1`.
+#[test]
+fn tab_clamps_at_last_column() {
+    // 10-col term; after "012345678" cursor is at col 9 (last column).
+    // HT must not advance past col 9; the following 'X' overwrites col 9.
+    ansi_test(10, 24, "012345678\tX", |terminfo, lines, commands| {
+        let (_, line) = &lines[0];
+        let cells = line.cells();
+        r!(commands.assert(
+            cells.get(9).map(|c| c.value) == Some('X'),
+            format!("HT clamp: 'X' should be at col 9, got line '{}'", line.as_string()),
+        ));
+        r!(commands.assert(
+            terminfo.cursor.row == 0,
+            format!("cursor row should stay 0, got {}", terminfo.cursor.row),
+        ))
+    });
+}
+
+/// HT honors a configurable `VtTabStop` width (here, 4).
+#[test]
+fn tab_respects_configurable_width() {
+    ansi_test_with_tabstop(80, 24, 4, "A\tB", |terminfo, lines, commands| {
+        let (_, line) = &lines[0];
+        let cells = line.cells();
+        r!(commands.assert(
+            cells.get(4).map(|c| c.value) == Some('B'),
+            format!("with tabstop=4, 'B' should be at col 4, got line '{}'", line.as_string()),
+        ));
+        r!(commands.assert(
+            terminfo.cursor.col == 5,
+            format!("cursor col after 'B' should be 5, got {}", terminfo.cursor.col),
+        ))
+    });
+}

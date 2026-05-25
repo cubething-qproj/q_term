@@ -154,6 +154,7 @@ pub struct Grid<'a> {
     rows: usize,
     scroll_pos: usize,
     cursor: VtCursor,
+    tab_stop: usize,
     term_id: Entity,
 }
 impl<'a> Grid<'a> {
@@ -188,6 +189,7 @@ impl<'a> Grid<'a> {
             rows: terminfo.size.rows,
             scroll_pos: terminfo.scroll_pos.0,
             cursor: *terminfo.cursor,
+            tab_stop: terminfo.tab_stop.0,
             term_id: terminfo.id,
         }
     }
@@ -566,6 +568,26 @@ impl<'a, 'g, 'w> anstyle_parse::Perform for AnsiPerformer<'a, 'g, 'w> {
             byte if byte == ControlCodes::BEL as u8 => {
                 // TODO: sound a bell :)
                 info!(?self.grid, "BEL");
+            }
+            byte if byte == ControlCodes::BS as u8 => {
+                trace!("BS");
+                // Backspace is non-destructive: only move the cursor.
+                // Clearing the pending-wrap latch lets the next print
+                // overwrite the last column on the current row instead of
+                // wrapping to a new line (xterm/VT behavior).
+                self.grid.cursor.pending_wrap = false;
+                self.grid.decrement_char(false);
+            }
+            byte if byte == ControlCodes::HT as u8 => {
+                trace!("HT");
+                self.grid.cursor.pending_wrap = false;
+                let tab_stop = self.grid.tab_stop;
+                if tab_stop == 0 || self.grid.cols == 0 {
+                    // Degenerate config; nothing meaningful to do.
+                    return;
+                }
+                let next = (self.grid.cursor.col / tab_stop + 1) * tab_stop;
+                self.grid.cursor.col = next.min(self.grid.cols.saturating_sub(1));
             }
             byte if byte == ControlCodes::LF as u8 => {
                 trace!("LF");

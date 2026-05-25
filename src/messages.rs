@@ -96,7 +96,7 @@ pub fn process_input(
         let mut grid = Grid::new(&terminfo, &q_lines, &q_rows);
         let cursor_before = grid.cursor();
         {
-            let mut performer = AnsiPerformer::new(&mut grid, &mut stdin_writer);
+            let mut performer = AnsiPerformer::new(&mut grid, &mut stdin_writer, target);
             let mut stream = AnsiParser::new();
             for spawner in writes {
                 if let Some(style) = spawner.style {

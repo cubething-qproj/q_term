@@ -52,6 +52,9 @@ enum CsiAction {
     ED = 0x4a,
     /// Erase around cursor.
     EL = 0x4b,
+    // reports
+    /// Device Status Report. `Ps=5` -> ready; `Ps=6` -> cursor position.
+    DSR = 0x6e,
     // color
     /// SGR style escapes
     SGR = 0x6d,
@@ -528,12 +531,18 @@ pub(crate) struct AnsiPerformer<'a, 'g, 'w> {
     style: VtCellStyle,
     default_style: VtCellStyle,
     writer: &'a mut MessageWriter<'w, TermStdIn>,
+    target: Entity,
 }
 impl<'a, 'g, 'w> AnsiPerformer<'a, 'g, 'w> {
-    pub fn new(grid: &'a mut Grid<'g>, writer: &'a mut MessageWriter<'w, TermStdIn>) -> Self {
+    pub fn new(
+        grid: &'a mut Grid<'g>,
+        writer: &'a mut MessageWriter<'w, TermStdIn>,
+        target: Entity,
+    ) -> Self {
         Self {
             grid,
             writer,
+            target,
             style: VtCellStyle::default(),
             default_style: VtCellStyle::default(),
         }
@@ -701,6 +710,29 @@ impl<'a, 'g, 'w> anstyle_parse::Perform for AnsiPerformer<'a, 'g, 'w> {
                     .and_then(|p| p.first().copied())
                     .unwrap_or(0);
                 self.grid.erase_in_line(mode, self.style);
+            }
+            // DSR replies on the TermStdIn (reverse) channel. The wire
+            // protocol is 1-indexed; our internal cursor is 0-indexed,
+            // so we add 1 when serialising.
+            action if action == CsiAction::DSR as u8 => {
+                let mode = param_iter
+                    .next()
+                    .and_then(|p| p.first().copied())
+                    .unwrap_or(0);
+                match mode {
+                    5 => {
+                        // "Ready, no malfunctions detected."
+                        self.writer
+                            .write(TermStdIn::new(self.target, b"\x1b[0n".to_vec()));
+                    }
+                    6 => {
+                        let row = self.grid.cursor.row + 1;
+                        let col = self.grid.cursor.col + 1;
+                        let reply = format!("\x1b[{row};{col}R").into_bytes();
+                        self.writer.write(TermStdIn::new(self.target, reply));
+                    }
+                    _ => {}
+                }
             }
             action if action == CsiAction::SGR as u8 => {
                 // SGR may contain multiple attributes in a single CSI

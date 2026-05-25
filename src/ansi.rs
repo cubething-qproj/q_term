@@ -55,6 +55,8 @@ enum CsiAction {
     // reports
     /// Device Status Report. `Ps=5` -> ready; `Ps=6` -> cursor position.
     DSR = 0x6e,
+    /// Device Attributes (primary). `Ps=0` -> identify terminal.
+    DA = 0x63,
     // color
     /// SGR style escapes
     SGR = 0x6d,
@@ -608,7 +610,7 @@ impl<'a, 'g, 'w> anstyle_parse::Perform for AnsiPerformer<'a, 'g, 'w> {
     fn csi_dispatch(
         &mut self,
         params: &anstyle_parse::Params,
-        _intermediates: &[u8],
+        intermediates: &[u8],
         _ignore: bool,
         action: u8,
     ) {
@@ -732,6 +734,24 @@ impl<'a, 'g, 'w> anstyle_parse::Perform for AnsiPerformer<'a, 'g, 'w> {
                         self.writer.write(TermStdIn::new(self.target, reply));
                     }
                     _ => {}
+                }
+            }
+            // DA primary (CSI c / CSI 0 c). Secondary (CSI > c) and
+            // tertiary (CSI = c) arrive with `>` / `=` in intermediates
+            // and are out of scope here.
+            action if action == CsiAction::DA as u8 => {
+                if !intermediates.is_empty() {
+                    return;
+                }
+                let mode = param_iter
+                    .next()
+                    .and_then(|p| p.first().copied())
+                    .unwrap_or(0);
+                if mode == 0 {
+                    // VT220 base + ANSI color -- honest claim for what
+                    // the parser currently implements.
+                    self.writer
+                        .write(TermStdIn::new(self.target, b"\x1b[?62;22c".to_vec()));
                 }
             }
             action if action == CsiAction::SGR as u8 => {

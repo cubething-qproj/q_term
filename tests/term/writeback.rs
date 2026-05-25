@@ -90,3 +90,28 @@ fn dsr_cursor_after_cup_reports_target_position() {
 fn dsr_status_reports_ok() {
     writeback_test(20, 5, "\x1b[5n", b"\x1b[0n");
 }
+
+// ---------------------------------------------------------------------------
+// DA - Primary Device Attributes
+// ---------------------------------------------------------------------------
+//
+// `CSI c` (equivalently `CSI 0 c`) asks the terminal to identify
+// itself. The reply is constrained to numeric VT-family codes (no
+// free-form name -- that's XTVERSION's job).
+//
+// We claim `CSI ? 62 ; 22 c` = VT220 base + ANSI color, which is an
+// honest description of what the parser currently implements (SGR
+// with palette + 24-bit color, no scrolling regions or alt screen).
+//
+// Secondary (`CSI > c`) and tertiary (`CSI = c`) DA forms use
+// intermediate bytes and are out of scope here.
+
+#[test]
+fn da_primary_no_param_replies_vt220_color() {
+    writeback_test(20, 5, "\x1b[c", b"\x1b[?62;22c");
+}
+
+#[test]
+fn da_primary_explicit_zero_replies_vt220_color() {
+    writeback_test(20, 5, "\x1b[0c", b"\x1b[?62;22c");
+}

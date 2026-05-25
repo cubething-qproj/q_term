@@ -36,20 +36,23 @@ fn main() {
 
         // test scrolling...
         for i in 0..20 {
-            commands.write_message(TermInputMsg::writeln(term_id, format!("{i}")));
+            commands.write_message(TermStdOut::writeln(term_id, format!("{i}")));
         }
 
         // Simple writes do not clear style or add newlinew to the end of their writes.
         // They can be considered "raw" and typically aren't going to be your goto.
-        commands.write_message(TermInputMsg::write(term_id, "hello\nhere are multiple lines\n"));
-        commands.write_message(TermInputMsg::write(
+        commands.write_message(TermStdOut::write(
+            term_id,
+            "hello\nhere are multiple lines\n",
+        ));
+        commands.write_message(TermStdOut::write(
             term_id,
             "\x1b[31mthis is red text \x1b[47mwith a white background!\n",
         ));
-        commands.write_message(TermInputMsg::write(term_id, "still red and white...\n"));
-        commands.write_message(TermInputMsg::write(term_id, "\x1b[0mbut no longer :)\n"));
+        commands.write_message(TermStdOut::write(term_id, "still red and white...\n"));
+        commands.write_message(TermStdOut::write(term_id, "\x1b[0mbut no longer :)\n"));
         // Writing spans is another way to directly manipulate the buffer.
-        commands.write_message(TermInputMsg::write_spans(
+        commands.write_message(TermStdOut::write_spans(
             term_id,
             vec![
                 TermWrite::new("you can do multiple spans too, "),
@@ -59,20 +62,17 @@ fn main() {
             ],
         ));
         // ... but writing lines is probably what you're looking for.
-        commands.write_message(TermInputMsg::writeln(term_id, LONG_LINE));
+        commands.write_message(TermStdOut::writeln(term_id, LONG_LINE));
 
         // commands.write_message(TermScrollMsg::new(term_id, 10));
         // commands.write_message(TermScrollMsg::new(term_id, -5));
     });
-    app.add_systems(
-        PostUpdate,
-        |mut ran: Local<bool>| {
-            if *ran {
-                // commands.write_message(AppExit::Success);
-            } else {
-                *ran = true;
-            }
-        },
-    );
+    app.add_systems(PostUpdate, |mut ran: Local<bool>| {
+        if *ran {
+            // commands.write_message(AppExit::Success);
+        } else {
+            *ran = true;
+        }
+    });
     app.run();
 }

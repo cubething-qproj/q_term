@@ -93,7 +93,7 @@ fn setup_app() -> App {
             rows: TERM_ROWS,
         });
         for i in 0..SEED_LINES {
-            commands.write_message(TermInputMsg::writeln(term_id, format!("line {i}")));
+            commands.write_message(TermStdOut::writeln(term_id, format!("line {i}")));
         }
         commands.insert_resource(Term(term_id));
 
@@ -256,14 +256,20 @@ fn line_unit_scroll_moves_exact_lines() {
             }
             r!(commands.assert(
                 pos.0 == 3,
-                format!("expected VtScrollPos = 3 after one Line(-3) scroll, got {}", pos.0),
+                format!(
+                    "expected VtScrollPos = 3 after one Line(-3) scroll, got {}",
+                    pos.0
+                ),
             ));
             // Line(-3) at sensitivity.line = 1.0 → total = -3.0,
             // whole = -3, remainder = 0.
             if let Ok(acc) = q_acc.get(ui.0) {
                 r!(commands.assert(
                     acc.0.abs() < 1e-3,
-                    format!("expected accumulator remainder ≈ 0.0 after exact line scroll, got {}", acc.0),
+                    format!(
+                        "expected accumulator remainder ≈ 0.0 after exact line scroll, got {}",
+                        acc.0
+                    ),
                 ));
             }
             commands.write_message(AppExit::Success);

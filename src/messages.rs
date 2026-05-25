@@ -7,7 +7,7 @@ use crate::prelude::*;
 /// Iterates entities carrying [`PendingTermInput`] or
 /// [`PendingTermScroll`]. For each, attempts to resolve the target's
 /// [`TermInfo`]; on success, removes the pending component and
-/// re-emits the corresponding [`TermInputMsg`] / [`TermScrollMsg`].
+/// re-emits the corresponding [`TermStdOut`] / [`TermScrollMsg`].
 /// Entities whose [`TermInfo`] is still unresolvable retain their
 /// pending component and are retried next frame.
 ///
@@ -17,7 +17,7 @@ use crate::prelude::*;
 /// [`MessageWriter`] system params; entity cleanup uses [`Commands`].
 pub fn drain_pending(
     mut commands: Commands,
-    mut input: MessageWriter<TermInputMsg>,
+    mut input: MessageWriter<TermStdOut>,
     mut scroll: MessageWriter<TermScrollMsg>,
     q_terminfo: Query<TermInfo>,
     q_pending_input: Query<(Entity, &PendingTermInput)>,
@@ -27,7 +27,7 @@ pub fn drain_pending(
     for (entity, pending) in &q_pending_input {
         if q_terminfo.get(entity).is_ok() {
             commands.entity(entity).remove::<PendingTermInput>();
-            input.write(TermInputMsg {
+            input.write(TermStdOut {
                 target: entity,
                 writes: pending.writes.clone(),
             });
@@ -44,7 +44,7 @@ pub fn drain_pending(
     }
 }
 
-/// Drain [`TermInputMsg`] writes and apply them via the ANSI parser.
+/// Drain [`TermStdOut`] writes and apply them via the ANSI parser.
 ///
 /// Looks up each message's target [`TermInfo`], builds a [`Grid`],
 /// runs the parser/performer, then syncs the grid back into the world.
@@ -54,19 +54,27 @@ pub fn drain_pending(
 /// Emits [`TermBufferMutatedMsg`], [`TermCursorMovedMsg`], and
 /// [`TermRedrawRequestedMsg`] per affected target.
 pub fn process_input(
-    mut messages: MessageReader<TermInputMsg>,
+    mut stdout: MessageReader<TermStdOut>,
+    mut stderr: MessageReader<TermStdErr>,
     mut commands: Commands,
     mut buffer_mutated: MessageWriter<TermBufferMutatedMsg>,
     mut cursor_moved: MessageWriter<TermCursorMovedMsg>,
     mut redraw_requested: MessageWriter<TermRedrawRequestedMsg>,
+    mut stdin_writer: MessageWriter<'_, TermStdIn>,
     cap: Res<PendingTermInputCap>,
     q_terminfo: Query<TermInfo>,
     q_lines: Query<(Entity, &VtLine, &VtRowTarget)>,
     q_rows: Query<(Entity, &VtRow)>,
 ) {
     trace!("process_input");
+    // Both channels feed the same parser; channel distinction is
+    // preserved at the type level for future consumers (e.g. an
+    // stderr-tinting renderer) but the grid sees them as one stream.
     let mut to_write: HashMap<Entity, Vec<&TermWrite>> = HashMap::new();
-    for msg in messages.read() {
+    for msg in stdout.read() {
+        to_write.entry(msg.target).or_default().extend(&msg.writes);
+    }
+    for msg in stderr.read() {
         to_write.entry(msg.target).or_default().extend(&msg.writes);
     }
     let cap_bytes = cap.bytes;
@@ -88,7 +96,7 @@ pub fn process_input(
         let mut grid = Grid::new(&terminfo, &q_lines, &q_rows);
         let cursor_before = grid.cursor();
         {
-            let mut performer = AnsiPerformer::new(&mut grid);
+            let mut performer = AnsiPerformer::new(&mut grid, &mut stdin_writer);
             let mut stream = AnsiParser::new();
             for spawner in writes {
                 if let Some(style) = spawner.style {

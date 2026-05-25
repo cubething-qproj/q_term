@@ -7,7 +7,7 @@ struct Target(Entity);
 
 /// Verifies the pending-input retry path end to end:
 ///
-/// 1. A `TermInputMsg` written against an entity that lacks
+/// 1. A `TermStdOut` written against an entity that lacks
 ///    `Terminal` and `VtSize` causes `process_input` to attach a
 ///    `PendingTermInput` rather than dropping the writes.
 /// 2. Once the target gains the prerequisites for `TermInfo` to
@@ -21,7 +21,7 @@ fn pending_input_attach_and_drain() {
     app.add_systems(Startup, |mut commands: Commands| {
         let target = commands.spawn_empty().id();
         commands.insert_resource(Target(target));
-        commands.write_message(TermInputMsg::write(target, "Hello, world!"));
+        commands.write_message(TermStdOut::write(target, "Hello, world!"));
     });
 
     // Step 0: wait for `process_input` to attach `PendingTermInput`,

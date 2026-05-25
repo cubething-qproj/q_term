@@ -523,15 +523,17 @@ impl<'a> Grid<'a> {
 
 /// Parses the passed [`VirtualTextSpanSpawner`], possibly expanding it into multiple
 /// and modifying various [`TerminalLine`]s.
-pub(crate) struct AnsiPerformer<'a, 'g> {
+pub(crate) struct AnsiPerformer<'a, 'g, 'w> {
     grid: &'a mut Grid<'g>,
     style: VtCellStyle,
     default_style: VtCellStyle,
+    writer: &'a mut MessageWriter<'w, TermStdIn>,
 }
-impl<'a, 'g> AnsiPerformer<'a, 'g> {
-    pub fn new(grid: &'a mut Grid<'g>) -> Self {
+impl<'a, 'g, 'w> AnsiPerformer<'a, 'g, 'w> {
+    pub fn new(grid: &'a mut Grid<'g>, writer: &'a mut MessageWriter<'w, TermStdIn>) -> Self {
         Self {
             grid,
+            writer,
             style: VtCellStyle::default(),
             default_style: VtCellStyle::default(),
         }
@@ -541,7 +543,7 @@ impl<'a, 'g> AnsiPerformer<'a, 'g> {
         self.style = style;
     }
 }
-impl<'a, 'g> anstyle_parse::Perform for AnsiPerformer<'a, 'g> {
+impl<'a, 'g, 'w> anstyle_parse::Perform for AnsiPerformer<'a, 'g, 'w> {
     fn print(&mut self, c: char) {
         trace!("print");
         self.grid.write(c, self.style);

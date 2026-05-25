@@ -494,7 +494,7 @@ impl<'a> Grid<'a> {
             let line_id = match gridline.line {
                 MaybeRef::Owned(Some(entity), line) => commands.entity(entity).insert(line).id(),
                 MaybeRef::Owned(None, line) => commands.spawn(line).id(),
-                _ => continue,
+                MaybeRef::Borrowed(entity, _) => entity,
             };
             gridline
                 .rows
@@ -509,7 +509,7 @@ impl<'a> Grid<'a> {
                         MaybeRef::Owned(None, row) => {
                             commands.spawn(VtRow::new(line_id, row.offset)).id()
                         }
-                        _ => return,
+                        MaybeRef::Borrowed(entity, _) => entity,
                     };
                     if visible_rows.contains(&VisibleRowIndex { line_idx, row_idx }) {
                         commands

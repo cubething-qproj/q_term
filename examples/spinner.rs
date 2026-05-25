@@ -8,7 +8,11 @@
 use bevy::{prelude::*, window::WindowResolution};
 use q_term::prelude::*;
 
-const FRAMES: [&str; 10] = ["⠋", "⠙", "⠹", "⠸", "⠼", "⠴", "⠦", "⠧", "⠇", "⠏"];
+// Default Bevy ships only an ASCII-subset of FiraMono, so the spinner
+// frames stick to characters that font covers. A real app would load
+// a font with broader Unicode coverage (e.g. a Nerd Font) and could
+// use prettier glyphs like the braille block `⠀⣿`.
+const FRAMES: [&str; 4] = ["|", "/", "-", "\\"];
 const LABELS: [&str; 4] = ["Loading", "Compiling crates", "Linking", "Done!"];
 
 #[derive(Resource)]
@@ -59,19 +63,21 @@ fn setup(mut commands: Commands) {
 }
 
 fn tick(time: Res<Time>, mut s: ResMut<Spinner>, mut commands: Commands) {
+    debug!("tick");
     s.tick.tick(time.delta());
     s.label_tick.tick(time.delta());
     if s.label_tick.just_finished() {
         s.label = (s.label + 1) % LABELS.len();
+        debug!("update label");
     }
-    if !s.tick.just_finished() {
-        return;
+    if s.tick.just_finished() {
+        s.frame = (s.frame + 1) % FRAMES.len();
+        // `\r` returns to col 0; `\x1b[2K` wipes whatever was on the
+        // previous frame so shorter labels don't leave a tail behind.
+        debug!("update frame");
+        commands.write_message(TermInputMsg::write(
+            s.term_id,
+            format!("\r\x1b[2K{} {}", FRAMES[s.frame], LABELS[s.label]),
+        ));
     }
-    s.frame = (s.frame + 1) % FRAMES.len();
-    // `\r` returns to col 0; `\x1b[2K` wipes whatever was on the
-    // previous frame so shorter labels don't leave a tail behind.
-    commands.write_message(TermInputMsg::write(
-        s.term_id,
-        format!("\r\x1b[2K{} {}", FRAMES[s.frame], LABELS[s.label]),
-    ));
 }

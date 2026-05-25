@@ -95,14 +95,14 @@ fn el_preserves_cursor() {
 }
 
 /// Erased cells take the current SGR background colour (xterm behaviour).
-/// Write "ABC", set bg to red (`\x1b[41m`), home cursor, EL2 → three
-/// space cells whose `style.background` is `basic::RED`.
+/// Write "ABC", set bg to bright red (`\x1b[101m`), home cursor, EL2 →
+/// three space cells whose `style.background` is `basic::RED`.
 #[test]
 fn el2_uses_current_bg_color() {
     erase_test(
         10,
         3,
-        "ABC\x1b[41m\x1b[1;1H\x1b[2K",
+        "ABC\x1b[101m\x1b[1;1H\x1b[2K",
         |_, lines, commands| {
             let cells = lines[0].1.cells();
             let red = Color::from(basic::RED);
@@ -192,16 +192,17 @@ fn ed2_erase_entire_screen() {
 }
 
 /// Erased cells across every blanked row carry the current SGR background.
-/// Fill three lines, set bg to green (`\x1b[42m`), CUP to row 2 col 2,
-/// then ED2 → every cell in every line is a space on a green background.
+/// Fill three lines, set bg to bright green (`\x1b[102m`), CUP to row 2
+/// col 2, then ED2 → every cell in every line is a space on a
+/// `basic::LIME` background.
 #[test]
 fn ed2_uses_current_bg_color() {
     erase_test(
         5,
         3,
-        "AAA\nBBB\nCCC\x1b[42m\x1b[2;2H\x1b[2J",
+        "AAA\nBBB\nCCC\x1b[102m\x1b[2;2H\x1b[2J",
         |_, lines, commands| {
-            let green = Color::from(basic::GREEN);
+            let green = Color::from(basic::LIME);
             let ok = lines.iter().all(|(_, l)| {
                 l.cells()
                     .iter()

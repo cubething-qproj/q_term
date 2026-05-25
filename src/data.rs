@@ -13,6 +13,7 @@ mod terminfo {
         pub viewport: &'static VtViewport,
         pub size: &'static VtSize,
         pub scroll_pos: &'static VtScrollPos,
+        pub tab_stop: &'static VtTabStop,
     }
     impl<'w, 's> TermInfoItem<'w, 's> {
         #[inline(always)]
@@ -231,6 +232,7 @@ mod terminal {
         VtScrollPos,
         VtSize,
         VtViewport,
+        VtTabStop,
         Name::new("Terminal"),
         )]
     pub struct Terminal;
@@ -263,6 +265,15 @@ mod terminal {
                 col: char,
                 pending_wrap: false,
             }
+        }
+    }
+
+    /// Configurable tab stop in character width
+    #[derive(Component, Reflect, Clone, Copy, Debug)]
+    pub struct VtTabStop(pub usize);
+    impl Default for VtTabStop {
+        fn default() -> Self {
+            Self(8)
         }
     }
 

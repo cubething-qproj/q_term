@@ -35,7 +35,7 @@ fn writeback_test(cols: usize, rows: usize, input: &'static str, expect: &'stati
                 return;
             };
             for msg in reader.read() {
-                if msg.target == terminfo.id {
+                if msg.term == terminfo.id {
                     acc.extend(&msg.writes);
                 }
             }

@@ -28,7 +28,7 @@ pub fn drain_pending(
         if q_terminfo.get(entity).is_ok() {
             commands.entity(entity).remove::<PendingTermInput>();
             input.write(TermStdOut {
-                target: entity,
+                term: entity,
                 writes: pending.writes.clone(),
             });
         }
@@ -37,7 +37,7 @@ pub fn drain_pending(
         if q_terminfo.get(entity).is_ok() {
             commands.entity(entity).remove::<PendingTermScroll>();
             scroll.write(TermScrollMsg {
-                target: entity,
+                term: entity,
                 delta: pending.delta,
             });
         }
@@ -72,10 +72,10 @@ pub fn process_input(
     // stderr-tinting renderer) but the grid sees them as one stream.
     let mut to_write: HashMap<Entity, Vec<&TermWrite>> = HashMap::new();
     for msg in stdout.read() {
-        to_write.entry(msg.target).or_default().extend(&msg.writes);
+        to_write.entry(msg.term).or_default().extend(&msg.writes);
     }
     for msg in stderr.read() {
-        to_write.entry(msg.target).or_default().extend(&msg.writes);
+        to_write.entry(msg.term).or_default().extend(&msg.writes);
     }
     let cap_bytes = cap.bytes;
     for (target, writes) in to_write {
@@ -139,12 +139,12 @@ pub fn apply_scroll(
 ) {
     trace!("apply_scroll");
     for msg in scrolls.read() {
-        let terminfo = match q_terminfo.get(msg.target) {
+        let terminfo = match q_terminfo.get(msg.term) {
             Ok(t) => t,
             Err(_) => {
                 let delta = msg.delta;
                 commands
-                    .entity(msg.target)
+                    .entity(msg.term)
                     .entry::<PendingTermScroll>()
                     .or_default()
                     .and_modify(move |mut pending| {
@@ -163,17 +163,17 @@ pub fn apply_scroll(
             .clamp(0, num_rows.saturating_sub(terminfo.size.rows));
         if pos != terminfo.scroll_pos.0 {
             commands.entity(terminfo.id).insert(VtScrollPos(pos));
-            redraw_requested.write(TermRedrawRequestedMsg::new(msg.target));
+            redraw_requested.write(TermRedrawRequestedMsg::new(msg.term));
         }
     }
     for msg in jumps.read() {
-        let terminfo = match q_terminfo.get(msg.target) {
+        let terminfo = match q_terminfo.get(msg.term) {
             Ok(t) => t,
             Err(_) => continue,
         };
         if terminfo.scroll_pos.0 != 0 {
-            commands.entity(msg.target).insert(VtScrollPos(0));
-            redraw_requested.write(TermRedrawRequestedMsg::new(msg.target));
+            commands.entity(msg.term).insert(VtScrollPos(0));
+            redraw_requested.write(TermRedrawRequestedMsg::new(msg.term));
         }
     }
 }
@@ -197,8 +197,8 @@ pub fn apply_reflow(
     trace!("apply_reflow");
     let mut targets: Vec<Entity> = vec![];
     for msg in messages.read() {
-        if !targets.contains(&msg.target) {
-            targets.push(msg.target);
+        if !targets.contains(&msg.term) {
+            targets.push(msg.term);
         }
     }
     for target in targets {

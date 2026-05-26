@@ -156,11 +156,15 @@ mod ui {
                 .entity(ctx.entity)
                 .add_one_related::<VtCharWidth>(id)
                 .observe(on_scroll);
-            commands
-                .entity(ctx.entity)
-                .add_one_related::<VtUiCursor>(id);
+
+            commands.entity(ctx.entity).with_child(VtUiCursor);
+            commands.entity(ctx.entity).with_child(VtUiGrid);
         }
     }
+
+    #[derive(Component, Debug, Reflect, PartialEq, Clone, Copy, Default)]
+    #[require(Node)]
+    pub struct VtUiGrid;
 
     /// Relationship target for [`VtUi`] (1:1). Will be attached to the given [`Terminal`] entity when
     /// spawning [`VtUi`].
@@ -210,26 +214,11 @@ mod ui {
         }
     }
 
-    #[derive(Component, Debug, Reflect, PartialEq, Eq, Hash, Clone, Copy, Deref)]
-    #[relationship_target(relationship=VtUiCursor, linked_spawn)]
-    pub struct VtUiCursorTarget(Entity);
-    impl VtUiCursorTarget {
-        pub fn target(&self) -> Entity {
-            self.0
-        }
-    }
-
     /// A component for the visual representation of the cursor.
-    /// Related 1:1 to [VtCursor]
+    /// Must be child of [VtUi]
     #[derive(Reflect, Component, PartialEq, Eq, Debug)]
     #[require(VtCursorStyle, VtCursorColor, VtStrobeTimer, Node, BackgroundColor)]
-    #[relationship(relationship_target=VtUiCursorTarget)]
-    pub struct VtUiCursor(Entity);
-    impl VtUiCursor {
-        pub fn target(&self) -> Entity {
-            self.0
-        }
-    }
+    pub struct VtUiCursor;
 
     /// The cursor's style. Defaults to Block.
     #[derive(Reflect, Component, PartialEq, Eq, Default, Debug)]
@@ -241,7 +230,7 @@ mod ui {
     }
 
     /// The color of the cursor display. Defaults to white at 50% opacity.
-    #[derive(Reflect, Component, PartialEq, Debug)]
+    #[derive(Reflect, Component, PartialEq, Debug, Deref, DerefMut)]
     pub struct VtCursorColor(Color);
     impl Default for VtCursorColor {
         fn default() -> Self {
@@ -312,8 +301,6 @@ mod terminal {
         }
     }
     /// The duration between cursor visibility state changes.
-    /// For example, if set to 1s the cursor would be visible for 1 second,
-    /// then become invisible for one second, before repeating.
     #[derive(Reflect, Component, PartialEq, Debug, Deref, DerefMut)]
     pub struct VtStrobeTimer(Timer);
     impl VtStrobeTimer {
@@ -323,7 +310,7 @@ mod terminal {
     }
     impl Default for VtStrobeTimer {
         fn default() -> Self {
-            Self(Timer::new(Duration::from_secs(1), TimerMode::Repeating))
+            Self(Timer::new(Duration::from_millis(530), TimerMode::Repeating))
         }
     }
 
@@ -366,8 +353,6 @@ mod terminal {
     ///                                                         V
     ///                                            (Terminal; VtLayout)
     /// ```
-    ///
-    /// Related to [`VtLineTarget`] 1:n
     #[derive(Component, Debug, Reflect, PartialEq, Clone)]
     #[relationship(relationship_target=VtLineTarget)]
     #[require(VtRowTarget)]

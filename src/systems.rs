@@ -280,23 +280,41 @@ pub(crate) fn scroll_viewport(
 }
 
 pub(crate) fn update_cursor_display(
-    terminfo: Query<(TermInfo, &VtUiTarget), Changed<VtCursor>>,
-    width: Query<&VtCharWidth, Changed<VtCharWidth>>,
-    mut ui: Query<(&TextFont, &LineHeight, &mut Node, &VtCharWidthTarget), With<VtUi>>,
+    q_cursor: Query<Ref<VtCursor>>,
+    q_width: Query<Ref<VtCharWidth>>,
+    q_ui: Query<(&VtUi, Ref<TextFont>, Ref<LineHeight>, &VtCharWidthTarget)>,
+    mut q_cursor_ui: Query<(&ChildOf, &mut Node, Ref<VtCursorStyle>), With<VtUiCursor>>,
 ) {
-    for (terminfo, ui_target) in terminfo.iter() {
-        let (text_font, line_height, mut node, cwt) = c!(ui.get_mut(ui_target.target()));
-        let width = c!(width.get(cwt.target())).value();
-        let height = match line_height {
-            LineHeight::Px(h) => *h,
-            LineHeight::RelativeToFont(pct) => *pct * text_font.font_size,
+    for (childof, mut node, style) in q_cursor_ui.iter_mut() {
+        let (ui, font, lh, cwt) = c!(q_ui.get(childof.parent()));
+        let width = c!(q_width.get(cwt.target()));
+        let cursor = c!(q_cursor.get(ui.target()));
+
+        if !cursor.is_changed()
+            && !width.is_changed()
+            && !lh.is_changed()
+            && !font.is_changed()
+            && !style.is_changed()
+        {
+            continue;
+        }
+        let width = width.value();
+        let height = match *lh {
+            LineHeight::Px(h) => h,
+            LineHeight::RelativeToFont(pct) => pct * font.font_size,
         };
-        let offset_x = terminfo.cursor.col as f32 * width;
-        let offset_y = terminfo.cursor.row as f32 * height;
-        let left = terminfo.cursor.col as f32 * width + offset_x;
-        let top = terminfo.cursor.row as f32 * height + offset_y;
+        let left = cursor.col as f32 * width;
+        let mut top = cursor.row as f32 * height;
+        let (width, height) = match *style {
+            VtCursorStyle::Block => (width, height),
+            VtCursorStyle::Beam => ((width / 8.).max(1.), height),
+            VtCursorStyle::Underline => {
+                top += 7. * height / 8.;
+                (width, (height / 8.).max(1.))
+            }
+        };
         *node = Node {
-            position_type: PositionType::Relative,
+            position_type: PositionType::Absolute,
             left: px(left),
             top: px(top),
             width: px(width),
@@ -308,15 +326,15 @@ pub(crate) fn update_cursor_display(
 
 pub(crate) fn flash_cursor(
     time: Res<Time>,
-    mut cursor: Query<(&mut VtStrobeTimer, &mut BackgroundColor)>,
+    mut cursor: Query<(&mut VtStrobeTimer, &VtCursorColor, &mut BackgroundColor)>,
 ) {
-    for (mut timer, mut bg_color) in cursor.iter_mut() {
+    for (mut timer, color, mut bg_color) in cursor.iter_mut() {
         timer.tick(time.delta());
         if timer.just_finished() {
-            if bg_color.0.alpha() != 0. {
-                bg_color.0.set_alpha(0.);
+            if bg_color.0 == Color::NONE {
+                bg_color.0 = **color
             } else {
-                bg_color.0.set_alpha(0.5);
+                bg_color.0 = Color::NONE
             }
         }
     }

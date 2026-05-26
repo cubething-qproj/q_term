@@ -249,7 +249,20 @@ mod ui {
     /// Must be child of [VtUi]
     #[derive(Reflect, Component, PartialEq, Eq, Debug)]
     #[require(VtCursorStyle, VtCursorColor, VtStrobeTimer, Node, BackgroundColor)]
+    #[component(on_insert = Self::on_insert)]
     pub struct VtUiCursor;
+    impl VtUiCursor {
+        /// Seed [`BackgroundColor`] from the required [`VtCursorColor`] so
+        /// the cursor is visible immediately rather than waiting up to one
+        /// strobe period for [`flash_cursor`](crate::flash_cursor) to flip
+        /// it on.
+        fn on_insert(mut world: DeferredWorld, ctx: HookContext) {
+            let color = world.get::<VtCursorColor>(ctx.entity).copied().unwrap_or_default();
+            if let Some(mut bg) = world.get_mut::<BackgroundColor>(ctx.entity) {
+                bg.0 = *color;
+            }
+        }
+    }
 
     /// The cursor's style. Defaults to Block.
     #[derive(Reflect, Component, PartialEq, Eq, Default, Debug)]
@@ -261,7 +274,7 @@ mod ui {
     }
 
     /// The color of the cursor display. Defaults to white at 50% opacity.
-    #[derive(Reflect, Component, PartialEq, Debug, Deref, DerefMut)]
+    #[derive(Reflect, Component, PartialEq, Debug, Clone, Copy, Deref, DerefMut)]
     pub struct VtCursorColor(Color);
     impl Default for VtCursorColor {
         fn default() -> Self {
@@ -308,6 +321,8 @@ mod terminal {
     /// Cursor positions are relative to the top-left of the viewport, with x
     /// increasing to the right and y increasing downwards. This is the opposite
     /// of the [`TerminalRow`] index.
+    ///
+    /// Rendered by [`VtUiCursor`] when a [`VtUi`] frontend is attached.
     ///
     /// ```notrust
     ///                        row idx | cursor line

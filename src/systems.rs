@@ -334,6 +334,15 @@ pub(crate) fn flash_cursor(
     mut cursor: Query<(&mut VtStrobeTimer, &VtCursorColor, &mut BackgroundColor)>,
 ) {
     for (mut timer, color, mut bg_color) in cursor.iter_mut() {
+        // Zero-duration timer means "blink disabled": keep the cursor
+        // visible and skip ticking (a zero-period Timer would just_finish
+        // every frame).
+        if timer.duration().is_zero() {
+            if bg_color.0 != **color {
+                bg_color.0 = **color;
+            }
+            continue;
+        }
         timer.tick(time.delta());
         if timer.just_finished() {
             if bg_color.0 == Color::NONE {

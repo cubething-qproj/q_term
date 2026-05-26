@@ -284,7 +284,7 @@ pub(crate) fn scroll_viewport(
     }
 }
 
-pub(crate) fn update_cursor_display(
+pub fn update_cursor_display(
     q_cursor: Query<Ref<VtCursor>>,
     q_width: Query<Ref<VtCharWidth>>,
     q_ui: Query<(&VtUi, Ref<TextFont>, Ref<LineHeight>, &VtCharWidthTarget)>,
@@ -329,7 +329,7 @@ pub(crate) fn update_cursor_display(
     }
 }
 
-pub(crate) fn flash_cursor(
+pub fn flash_cursor(
     time: Res<Time>,
     mut cursor: Query<(&mut VtStrobeTimer, &VtCursorColor, &mut BackgroundColor)>,
 ) {

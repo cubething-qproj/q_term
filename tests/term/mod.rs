@@ -1,5 +1,6 @@
 mod ansi;
 mod command_msg;
+mod cursor;
 mod drain;
 mod erase;
 mod hello_world;

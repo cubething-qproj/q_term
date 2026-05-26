@@ -17,7 +17,7 @@ pub enum TerminalSystems {
     /// Stateful processing: message handling, scrollback updates.
     Process,
     /// Prepare UI nodes for the next frame's render.
-    RenderPrep,
+    Render,
 }
 
 /// The primary plugin for q_term.
@@ -59,6 +59,7 @@ impl Plugin for TerminalPlugin {
                 )
                     .chain()
                     .in_set(TerminalSystems::Process),
+                (update_cursor_display, flash_cursor).in_set(TerminalSystems::Render),
             )
                 // Outer `.chain()` orders the `Measure` set before the
                 // `Process` set. The `TerminalSystems` enum carries no
@@ -70,7 +71,7 @@ impl Plugin for TerminalPlugin {
             PostUpdate,
             refresh_ui
                 .after(ui_layout_system)
-                .in_set(TerminalSystems::RenderPrep),
+                .in_set(TerminalSystems::Render),
         );
     }
 }

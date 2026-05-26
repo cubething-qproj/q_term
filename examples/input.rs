@@ -7,6 +7,10 @@
 //! `q_term` reserves [`TerminalSystems::Input`] for shell-side input
 //! and ships no built-in keyboard binding -- this example wires
 //! [`KeyboardInput`] directly to demonstrate the seam.
+//!
+//! Controls:
+//! * Printable keys / Space / Backspace / Enter: edit the prompt.
+//! * **Alt+Down**: cycle the cursor style (Block → Beam → Underline).
 
 use bevy::{
     input::{ButtonState, keyboard::KeyboardInput},
@@ -36,7 +40,7 @@ fn main() {
         TerminalPlugin,
     ));
     app.add_systems(Startup, setup);
-    app.add_systems(Update, on_key);
+    app.add_systems(Update, (on_key, cycle_cursor_style));
     app.run();
 }
 
@@ -63,15 +67,24 @@ fn setup(mut commands: Commands) {
 fn on_key(
     mut events: MessageReader<KeyboardInput>,
     mut input: ResMut<Input>,
+    keys: Res<ButtonInput<KeyCode>>,
     mut commands: Commands,
 ) {
     use bevy::input::keyboard::Key;
+
+    // Modifier-bound shortcuts (Alt+...) are handled in their own
+    // system to avoid leaking into the prompt buffer.
+    let alt_held = keys.any_pressed([KeyCode::AltLeft, KeyCode::AltRight]);
 
     let mut dirty = false;
     let mut submitted: Option<String> = None;
 
     for ev in events.read() {
         if ev.state != ButtonState::Pressed {
+            continue;
+        }
+        if alt_held {
+            // Don't fold Alt-chorded keys into the buffer.
             continue;
         }
         match &ev.logical_key {
@@ -110,5 +123,27 @@ fn on_key(
             input.term_id,
             format!("\r\x1b[2K{PROMPT}{}", input.buffer),
         ));
+    }
+}
+
+/// Alt+Down cycles the active cursor style: Block → Beam → Underline
+/// → Block. Demonstrates that `VtCursorStyle` is a live, per-cursor
+/// component the host app can mutate at any time;
+/// `update_cursor_display` picks up the change on the next render
+/// tick.
+fn cycle_cursor_style(
+    keys: Res<ButtonInput<KeyCode>>,
+    mut q: Query<&mut VtCursorStyle, With<VtUiCursor>>,
+) {
+    let alt = keys.any_pressed([KeyCode::AltLeft, KeyCode::AltRight]);
+    if !(alt && keys.just_pressed(KeyCode::ArrowDown)) {
+        return;
+    }
+    for mut style in q.iter_mut() {
+        *style = match *style {
+            VtCursorStyle::Block => VtCursorStyle::Beam,
+            VtCursorStyle::Beam => VtCursorStyle::Underline,
+            VtCursorStyle::Underline => VtCursorStyle::Block,
+        };
     }
 }

@@ -128,12 +128,10 @@ mod ui {
             overflow: Overflow::clip(),
             ..Default::default()
         },
-        TextLayout::new_with_no_wrap(),
         Pickable,
         TextColor,
         TextFont,
         LineHeight,
-        Text,
     )]
     #[component(on_add=Self::on_add)]
     #[relationship(relationship_target = VtUiTarget)]
@@ -156,6 +154,50 @@ mod ui {
                 .entity(ctx.entity)
                 .add_one_related::<VtCharWidth>(id)
                 .observe(on_scroll);
+
+            // Spawn order matters: bevy_ui renders later siblings on
+            // top of earlier ones. The grid must come first so the cursor
+            // overlays glyphs rather than hiding behind them.
+            //
+            // VtUiGrid carries a back-reference to the VtUi entity via its
+            // relationship; the matching VtUiGridTarget is inserted on
+            // ctx.entity automatically.
+            commands.spawn((VtUiGrid(ctx.entity), ChildOf(ctx.entity)));
+            commands.entity(ctx.entity).with_child(VtUiCursor);
+        }
+    }
+
+    /// Text-rooted child of [`VtUi`] that owns the grid of [`TextSpan`]s
+    /// rebuilt by `refresh_ui`. Sibling of [`VtUiCursor`] so cursor
+    /// rendering is unaffected by redraws.
+    ///
+    /// Related 1:1 to [`VtUiGridTarget`].
+    #[derive(Component, Debug, Reflect, PartialEq, Clone, Copy)]
+    #[require(
+        Node {
+            width: Val::Percent(100.),
+            height: Val::Percent(100.),
+            ..Default::default()
+        },
+        TextLayout::new_with_no_wrap(),
+        Text,
+    )]
+    #[relationship(relationship_target = VtUiGridTarget)]
+    pub struct VtUiGrid(pub Entity);
+    impl VtUiGrid {
+        pub fn target(&self) -> Entity {
+            self.0
+        }
+    }
+
+    /// Relationship target for [`VtUiGrid`] (1:1). Inserted on the
+    /// [`VtUi`] entity when its grid sub-node is spawned.
+    #[derive(Component, Debug, Reflect, PartialEq, Eq, Hash, Clone, Copy, Deref)]
+    #[relationship_target(relationship = VtUiGrid, linked_spawn)]
+    pub struct VtUiGridTarget(Entity);
+    impl VtUiGridTarget {
+        pub fn target(&self) -> Entity {
+            self.0
         }
     }
 
@@ -206,10 +248,49 @@ mod ui {
             self.0
         }
     }
+
+    /// A component for the visual representation of the cursor.
+    /// Must be child of [VtUi]
+    #[derive(Reflect, Component, PartialEq, Eq, Debug)]
+    #[require(VtCursorStyle, VtCursorColor, VtStrobeTimer, Node, BackgroundColor)]
+    #[component(on_insert = Self::on_insert)]
+    pub struct VtUiCursor;
+    impl VtUiCursor {
+        /// Seed [`BackgroundColor`] from the required [`VtCursorColor`] so
+        /// the cursor is visible immediately rather than waiting up to one
+        /// strobe period for [`flash_cursor`](crate::flash_cursor) to flip
+        /// it on.
+        fn on_insert(mut world: DeferredWorld, ctx: HookContext) {
+            let color = world.get::<VtCursorColor>(ctx.entity).copied().unwrap_or_default();
+            if let Some(mut bg) = world.get_mut::<BackgroundColor>(ctx.entity) {
+                bg.0 = *color;
+            }
+        }
+    }
+
+    /// The cursor's style. Defaults to Block.
+    #[derive(Reflect, Component, PartialEq, Eq, Default, Debug)]
+    pub enum VtCursorStyle {
+        #[default]
+        Block,
+        Beam,
+        Underline,
+    }
+
+    /// The color of the cursor display. Defaults to white at 50% opacity.
+    #[derive(Reflect, Component, PartialEq, Debug, Clone, Copy, Deref, DerefMut)]
+    pub struct VtCursorColor(Color);
+    impl Default for VtCursorColor {
+        fn default() -> Self {
+            Self(Color::srgba(1., 1., 1., 0.5))
+        }
+    }
 }
 pub use ui::*;
 
 mod terminal {
+    use std::time::Duration;
+
     use super::*;
 
     use bevy::ecs::{lifecycle::HookContext, world::DeferredWorld};
@@ -245,6 +326,8 @@ mod terminal {
     /// increasing to the right and y increasing downwards. This is the opposite
     /// of the [`TerminalRow`] index.
     ///
+    /// Rendered by [`VtUiCursor`] when a [`VtUi`] frontend is attached.
+    ///
     /// ```notrust
     ///                        row idx | cursor line
     /// (0,0).---------.             3 | 0
@@ -252,7 +335,7 @@ mod terminal {
     ///      |         |             1 | 2
     ///      `---------`(10,3)       0 | 3
     /// ```
-    #[derive(Component, Default, Reflect, Clone, Copy, Debug)]
+    #[derive(Component, Reflect, Clone, Copy, Debug, Default)]
     pub struct VtCursor {
         pub row: usize,
         pub col: usize,
@@ -265,6 +348,19 @@ mod terminal {
                 col: char,
                 pending_wrap: false,
             }
+        }
+    }
+    /// The duration between cursor visibility state changes.
+    #[derive(Reflect, Component, PartialEq, Debug, Deref, DerefMut)]
+    pub struct VtStrobeTimer(Timer);
+    impl VtStrobeTimer {
+        pub fn new(duration: Duration) -> Self {
+            Self(Timer::new(duration, TimerMode::Repeating))
+        }
+    }
+    impl Default for VtStrobeTimer {
+        fn default() -> Self {
+            Self(Timer::new(Duration::from_millis(530), TimerMode::Repeating))
         }
     }
 
@@ -307,8 +403,6 @@ mod terminal {
     ///                                                         V
     ///                                            (Terminal; VtLayout)
     /// ```
-    ///
-    /// Related to [`VtLineTarget`] 1:n
     #[derive(Component, Debug, Reflect, PartialEq, Clone)]
     #[relationship(relationship_target=VtLineTarget)]
     #[require(VtRowTarget)]

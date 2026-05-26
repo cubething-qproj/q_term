@@ -52,6 +52,16 @@ enum CsiAction {
     ED = 0x4a,
     /// Erase around cursor.
     EL = 0x4b,
+    /// Erase Character. Replace n cells starting at the cursor with
+    /// blanks. Does not shift the rest of the row; cursor unchanged.
+    ECH = 0x58,
+    /// Insert Character. Shift cells at the cursor right by n, dropping
+    /// any pushed past the right edge of the row, then blank the n
+    /// newly-vacated cells. Cursor unchanged.
+    ICH = 0x40,
+    /// Delete Character. Shift cells right of cursor+n left by n, then
+    /// blank n cells at the right edge of the row. Cursor unchanged.
+    DCH = 0x50,
     // reports
     /// Device Status Report. `Ps=5` -> ready; `Ps=6` -> cursor position.
     DSR = 0x6e,
@@ -383,6 +393,101 @@ impl<'a> Grid<'a> {
         for cell in &mut cells[start..end] {
             *cell = VtCell::new(' ').with_style(style);
         }
+        gridline.line = MaybeRef::Owned(entity, VtLine::from_cells(self.term_id, cells));
+    }
+
+    /// Resolve the cursor's current row into `(line_idx, abs_cursor, row_end)`
+    /// in the logical line's absolute cell index space. Returns `None`
+    /// if the cursor row has no backing row (cursor outside any line).
+    fn cursor_row_span(&self) -> Option<(usize, usize, usize)> {
+        let visible_rows = self.visible_rows();
+        let &VisibleRowIndex { line_idx, row_idx } = visible_rows.get(self.cursor.row)?;
+        let row_offset = self
+            .lines
+            .get(line_idx)
+            .and_then(|l| l.rows.get(row_idx))
+            .map(|r| r.row.value().offset)?;
+        let abs_cursor = row_offset + self.cursor.col;
+        let row_end = row_offset + self.cols;
+        Some((line_idx, abs_cursor, row_end))
+    }
+
+    /// ECH (`CSI n X`). Replace up to `n` cells starting at the cursor
+    /// with blanks. No cells are shifted. Cursor does not move.
+    pub fn erase_characters(&mut self, n: usize, style: VtCellStyle) {
+        let Some((line_idx, abs_cursor, row_end)) = self.cursor_row_span() else {
+            return;
+        };
+        let end = abs_cursor.saturating_add(n).min(row_end);
+        self.cursor.pending_wrap = false;
+        self.blank_cells(line_idx, abs_cursor, end, style);
+    }
+
+    /// ICH (`CSI n @`). Shift cells in `[abs_cursor, row_end)` right by
+    /// `n`, dropping any pushed past `row_end`, then blank the `n`
+    /// newly-vacated cells at the cursor. Cursor does not move. Short
+    /// logical lines are padded with default cells out to `row_end`
+    /// first so the past-margin tail (not in-storage tail) is what
+    /// gets dropped.
+    pub fn insert_characters(&mut self, n: usize, style: VtCellStyle) {
+        self.shift_row_cells(n, style, |cells, abs_cursor, row_end, shift| {
+            // [abs_cursor, row_end - shift) -> [abs_cursor + shift, row_end)
+            cells.copy_within(abs_cursor..(row_end - shift), abs_cursor + shift);
+            (abs_cursor, abs_cursor + shift)
+        });
+    }
+
+    /// DCH (`CSI n P`). Shift cells in `[abs_cursor + n, row_end)` left
+    /// by `n`, then blank the `n` cells at the right edge of the row.
+    /// Cursor does not move. Short logical lines are padded to
+    /// `row_end` first so the trailing blanks carry `style`.
+    pub fn delete_characters(&mut self, n: usize, style: VtCellStyle) {
+        self.shift_row_cells(n, style, |cells, abs_cursor, row_end, shift| {
+            // [abs_cursor + shift, row_end) -> [abs_cursor, row_end - shift)
+            cells.copy_within((abs_cursor + shift)..row_end, abs_cursor);
+            (row_end - shift, row_end)
+        });
+    }
+
+    /// Shared engine for ICH / DCH. Resolves the cursor's row, pads the
+    /// backing line out to `row_end` with default cells, performs the
+    /// caller's `shift` (which moves cells inside
+    /// `[abs_cursor, row_end)` and returns the `(blank_start, blank_end)`
+    /// half-open range to fill with styled blanks), then writes the
+    /// result back. No-op for `n == 0` or when the cursor is past the
+    /// right margin. Clears `pending_wrap` only when work was done.
+    fn shift_row_cells(
+        &mut self,
+        n: usize,
+        style: VtCellStyle,
+        shift_fn: impl FnOnce(&mut [VtCell], usize, usize, usize) -> (usize, usize),
+    ) {
+        if n == 0 {
+            return;
+        }
+        let Some((line_idx, abs_cursor, row_end)) = self.cursor_row_span() else {
+            return;
+        };
+        if abs_cursor >= row_end {
+            return;
+        }
+        let span_len = row_end - abs_cursor;
+        let shift = n.min(span_len);
+        let gridline = self.lines.get(line_idx).unwrap();
+        let entity = gridline.line.entity();
+        let mut cells = gridline.line.value().cells().to_vec();
+        // Pad short logical lines out to `row_end` so the shift sees the
+        // full row (issue: otherwise in-storage tail is dropped instead
+        // of past-margin tail, and trailing blanks lose their style).
+        if cells.len() < row_end {
+            cells.resize(row_end, VtCell::new(' '));
+        }
+        let (blank_start, blank_end) = shift_fn(&mut cells, abs_cursor, row_end, shift);
+        for cell in &mut cells[blank_start..blank_end] {
+            *cell = VtCell::new(' ').with_style(style);
+        }
+        self.cursor.pending_wrap = false;
+        let gridline = self.lines.get_mut(line_idx).unwrap();
         gridline.line = MaybeRef::Owned(entity, VtLine::from_cells(self.term_id, cells));
     }
 
@@ -734,6 +839,32 @@ impl<'a, 'g, 'w> anstyle_parse::Perform for AnsiPerformer<'a, 'g, 'w> {
                     .and_then(|p| p.first().copied())
                     .unwrap_or(0);
                 self.grid.erase_in_line(mode, self.style);
+            }
+            // ECH / ICH / DCH: count defaults to 1 and is clamped to >= 1,
+            // matching CUU et al.
+            action if action == CsiAction::ECH as u8 => {
+                let n = param_iter
+                    .next()
+                    .and_then(|p| p.first().copied())
+                    .unwrap_or(1)
+                    .max(1) as usize;
+                self.grid.erase_characters(n, self.style);
+            }
+            action if action == CsiAction::ICH as u8 => {
+                let n = param_iter
+                    .next()
+                    .and_then(|p| p.first().copied())
+                    .unwrap_or(1)
+                    .max(1) as usize;
+                self.grid.insert_characters(n, self.style);
+            }
+            action if action == CsiAction::DCH as u8 => {
+                let n = param_iter
+                    .next()
+                    .and_then(|p| p.first().copied())
+                    .unwrap_or(1)
+                    .max(1) as usize;
+                self.grid.delete_characters(n, self.style);
             }
             // DSR replies on the TermStdIn (reverse) channel. The wire
             // protocol is 1-indexed; our internal cursor is 0-indexed,

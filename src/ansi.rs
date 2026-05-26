@@ -70,6 +70,11 @@ enum CsiAction {
     // color
     /// SGR style escapes
     SGR = 0x6d,
+    // modes
+    /// Set Mode (and DEC private modes when intermediate is `?`).
+    SM = 0x68,
+    /// Reset Mode (and DEC private modes when intermediate is `?`).
+    RM = 0x6c,
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -164,6 +169,7 @@ pub struct Grid<'a> {
     rows: usize,
     scroll_pos: usize,
     cursor: VtCursor,
+    modes: VtModes,
     tab_stop: usize,
     term_id: Entity,
 }
@@ -199,6 +205,7 @@ impl<'a> Grid<'a> {
             rows: terminfo.size.rows,
             scroll_pos: terminfo.scroll_pos.0,
             cursor: *terminfo.cursor,
+            modes: *terminfo.modes,
             tab_stop: terminfo.tab_stop.0,
             term_id: terminfo.id,
         }
@@ -598,7 +605,7 @@ impl<'a> Grid<'a> {
         // cache viewport info
         commands
             .entity(self.term_id)
-            .insert((self.cursor, VtScrollPos(self.scroll_pos)));
+            .insert((self.cursor, VtScrollPos(self.scroll_pos), self.modes));
 
         // update grid entities
         let visible_rows = self.visible_rows();
@@ -659,6 +666,28 @@ impl<'a, 'g, 'w> AnsiPerformer<'a, 'g, 'w> {
     pub fn reset_style(&mut self, style: VtCellStyle) {
         self.default_style = style;
         self.style = style;
+    }
+
+    /// Apply SM (`set = true`) or RM (`set = false`) to every param in
+    /// `params`. When `intermediates == b"?"` the codes target the
+    /// DEC private mode space (DECSET/DECRST); otherwise they target
+    /// the ANSI mode space. Unknown codes in either space are silent
+    /// no-ops — the warn-once breadcrumbs flag them at runtime but
+    /// the parser must not abort the rest of a multi-param sequence.
+    fn set_modes(&mut self, intermediates: &[u8], params: &anstyle_parse::Params, set: bool) {
+        let private = intermediates == b"?";
+        for param in params.iter() {
+            let Some(&code) = param.first() else { continue };
+            match (private, code) {
+                (true, 25) => self.grid.modes.dectcem = set,
+                (true, _) => {
+                    info_once!("Unhandled DEC private mode ?{code}");
+                }
+                (false, _) => {
+                    info_once!("Unhandled ANSI mode {code}");
+                }
+            }
+        }
     }
 }
 impl<'a, 'g, 'w> anstyle_parse::Perform for AnsiPerformer<'a, 'g, 'w> {
@@ -1007,6 +1036,16 @@ impl<'a, 'g, 'w> anstyle_parse::Perform for AnsiPerformer<'a, 'g, 'w> {
                         _ => {}
                     }
                 }
+            }
+            // SM / RM. With `?` intermediate -> DEC private mode space
+            // (DECSET/DECRST). With empty intermediates -> ANSI mode
+            // space. The two spaces are disjoint: `?25` and bare `25`
+            // are different modes that happen to share a number.
+            action if action == CsiAction::SM as u8 => {
+                self.set_modes(intermediates, params, true);
+            }
+            action if action == CsiAction::RM as u8 => {
+                self.set_modes(intermediates, params, false);
             }
             _ => {}
         }

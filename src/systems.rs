@@ -331,9 +331,27 @@ pub fn update_cursor_display(
 
 pub fn flash_cursor(
     time: Res<Time>,
-    mut cursor: Query<(&mut VtStrobeTimer, &VtCursorColor, &mut BackgroundColor)>,
+    mut cursor: Query<(&ChildOf, &mut VtStrobeTimer, &VtCursorColor, &mut BackgroundColor), With<VtUiCursor>>,
+    q_ui: Query<&VtUi>,
+    q_modes: Query<&VtModes>,
 ) {
-    for (mut timer, color, mut bg_color) in cursor.iter_mut() {
+    for (childof, mut timer, color, mut bg_color) in cursor.iter_mut() {
+        // DECTCEM (`CSI ? 25 l`) hides the cursor. This must win over
+        // the zero-duration "blink disabled" sentinel below — a user
+        // who both disabled blinking and hid the cursor wants the
+        // cursor hidden, not pinned visible.
+        let dectcem = q_ui
+            .get(childof.parent())
+            .ok()
+            .and_then(|ui| q_modes.get(ui.target()).ok())
+            .map(|m| m.dectcem)
+            .unwrap_or(true);
+        if !dectcem {
+            if bg_color.0 != Color::NONE {
+                bg_color.0 = Color::NONE;
+            }
+            continue;
+        }
         // Zero-duration timer means "blink disabled": keep the cursor
         // visible and skip ticking (a zero-period Timer would just_finish
         // every frame).

@@ -128,12 +128,10 @@ mod ui {
             overflow: Overflow::clip(),
             ..Default::default()
         },
-        TextLayout::new_with_no_wrap(),
         Pickable,
         TextColor,
         TextFont,
         LineHeight,
-        Text,
     )]
     #[component(on_add=Self::on_add)]
     #[relationship(relationship_target = VtUiTarget)]
@@ -158,13 +156,46 @@ mod ui {
                 .observe(on_scroll);
 
             commands.entity(ctx.entity).with_child(VtUiCursor);
-            commands.entity(ctx.entity).with_child(VtUiGrid);
+            // VtUiGrid carries a back-reference to the VtUi entity via its
+            // relationship; the matching VtUiGridTarget is inserted on
+            // ctx.entity automatically.
+            commands.spawn((VtUiGrid(ctx.entity), ChildOf(ctx.entity)));
         }
     }
 
-    #[derive(Component, Debug, Reflect, PartialEq, Clone, Copy, Default)]
-    #[require(Node)]
-    pub struct VtUiGrid;
+    /// Text-rooted child of [`VtUi`] that owns the grid of [`TextSpan`]s
+    /// rebuilt by `refresh_ui`. Sibling of [`VtUiCursor`] so cursor
+    /// rendering is unaffected by redraws.
+    ///
+    /// Related 1:1 to [`VtUiGridTarget`].
+    #[derive(Component, Debug, Reflect, PartialEq, Clone, Copy)]
+    #[require(
+        Node {
+            width: Val::Percent(100.),
+            height: Val::Percent(100.),
+            ..Default::default()
+        },
+        TextLayout::new_with_no_wrap(),
+        Text,
+    )]
+    #[relationship(relationship_target = VtUiGridTarget)]
+    pub struct VtUiGrid(pub Entity);
+    impl VtUiGrid {
+        pub fn target(&self) -> Entity {
+            self.0
+        }
+    }
+
+    /// Relationship target for [`VtUiGrid`] (1:1). Inserted on the
+    /// [`VtUi`] entity when its grid sub-node is spawned.
+    #[derive(Component, Debug, Reflect, PartialEq, Eq, Hash, Clone, Copy, Deref)]
+    #[relationship_target(relationship = VtUiGrid, linked_spawn)]
+    pub struct VtUiGridTarget(Entity);
+    impl VtUiGridTarget {
+        pub fn target(&self) -> Entity {
+            self.0
+        }
+    }
 
     /// Relationship target for [`VtUi`] (1:1). Will be attached to the given [`Terminal`] entity when
     /// spawning [`VtUi`].

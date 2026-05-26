@@ -105,7 +105,7 @@ impl Default for TextSpanStyleBundle {
 /// Given a row and its corresponding lines, spawn the text spans.
 fn generate_textspan_ui(
     terminfo: &TermInfoItem,
-    ui_id: Entity,
+    grid_id: Entity,
     row_and_line: Option<(&VtRow, &VtLine)>,
 ) -> Vec<(TextSpan, TextSpanStyleBundle, ChildOf)> {
     if let Some((row, line)) = row_and_line {
@@ -124,7 +124,7 @@ fn generate_textspan_ui(
                     let color = TextColor(cell.style.color);
                     let bg = TextBackgroundColor(cell.style.background);
                     let style_bundle = TextSpanStyleBundle { color, bg };
-                    let new = (TextSpan::new(cell.value), style_bundle, ChildOf(ui_id));
+                    let new = (TextSpan::new(cell.value), style_bundle, ChildOf(grid_id));
                     if let Some(last) = spans.last_mut() {
                         if last.1 != style_bundle {
                             spans.push(new);
@@ -147,7 +147,7 @@ fn generate_textspan_ui(
         vec![(
             TextSpan::new(" ".repeat(terminfo.size.cols)),
             TextSpanStyleBundle::default(),
-            ChildOf(ui_id),
+            ChildOf(grid_id),
         )]
     }
 }
@@ -159,6 +159,7 @@ fn generate_textspan_ui(
 pub fn refresh_ui(
     mut redraws: MessageReader<TermRedrawRequestedMsg>,
     q: Query<(TermInfo, &VtUiTarget)>,
+    q_grid: Query<&VtUiGridTarget, With<VtUi>>,
     q_lines: Query<&VtLine>,
     q_viewport: Query<(&VtViewportRow, Option<Ref<VtRow>>)>,
     mut commands: Commands,
@@ -176,16 +177,20 @@ pub fn refresh_ui(
             Err(_) => continue,
         };
         let ui_id = ui_target.target();
-        commands.entity(ui_id).despawn_children();
+        let grid_id = match q_grid.get(ui_id) {
+            Ok(g) => g.target(),
+            Err(_) => continue,
+        };
+        commands.entity(grid_id).despawn_children();
         let mut spans = vec![];
         let mut row_count = 0;
         for (_, maybe_row) in q_viewport.iter_many(terminfo.viewport.iter()) {
             row_count += 1;
             let mut new_spans = if let Some(row) = maybe_row {
                 let line = c!(q_lines.get(row.line()));
-                generate_textspan_ui(&terminfo, ui_id, Some((row.as_ref(), line)))
+                generate_textspan_ui(&terminfo, grid_id, Some((row.as_ref(), line)))
             } else {
-                generate_textspan_ui(&terminfo, ui_id, None)
+                generate_textspan_ui(&terminfo, grid_id, None)
             };
             spans.append(&mut new_spans);
         }
@@ -195,7 +200,7 @@ pub fn refresh_ui(
             spans.push((
                 TextSpan::new(" ".repeat(terminfo.size.cols) + "\n"),
                 TextSpanStyleBundle::default(),
-                ChildOf(ui_id),
+                ChildOf(grid_id),
             ));
         }
         commands.spawn_batch(spans);

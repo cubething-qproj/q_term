@@ -155,11 +155,15 @@ mod ui {
                 .add_one_related::<VtCharWidth>(id)
                 .observe(on_scroll);
 
-            commands.entity(ctx.entity).with_child(VtUiCursor);
+            // Spawn order matters: bevy_ui renders later siblings on
+            // top of earlier ones. The grid must come first so the cursor
+            // overlays glyphs rather than hiding behind them.
+            //
             // VtUiGrid carries a back-reference to the VtUi entity via its
             // relationship; the matching VtUiGridTarget is inserted on
             // ctx.entity automatically.
             commands.spawn((VtUiGrid(ctx.entity), ChildOf(ctx.entity)));
+            commands.entity(ctx.entity).with_child(VtUiCursor);
         }
     }
 

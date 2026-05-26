@@ -278,3 +278,46 @@ pub(crate) fn scroll_viewport(
         });
     }
 }
+
+pub(crate) fn update_cursor_display(
+    terminfo: Query<(TermInfo, &VtUiTarget), Changed<VtCursor>>,
+    width: Query<&VtCharWidth, Changed<VtCharWidth>>,
+    mut ui: Query<(&TextFont, &LineHeight, &mut Node, &VtCharWidthTarget), With<VtUi>>,
+) {
+    for (terminfo, ui_target) in terminfo.iter() {
+        let (text_font, line_height, mut node, cwt) = c!(ui.get_mut(ui_target.target()));
+        let width = c!(width.get(cwt.target())).value();
+        let height = match line_height {
+            LineHeight::Px(h) => *h,
+            LineHeight::RelativeToFont(pct) => *pct * text_font.font_size,
+        };
+        let offset_x = terminfo.cursor.col as f32 * width;
+        let offset_y = terminfo.cursor.row as f32 * height;
+        let left = terminfo.cursor.col as f32 * width + offset_x;
+        let top = terminfo.cursor.row as f32 * height + offset_y;
+        *node = Node {
+            position_type: PositionType::Relative,
+            left: px(left),
+            top: px(top),
+            width: px(width),
+            height: px(height),
+            ..Default::default()
+        };
+    }
+}
+
+pub(crate) fn flash_cursor(
+    time: Res<Time>,
+    mut cursor: Query<(&mut VtStrobeTimer, &mut BackgroundColor)>,
+) {
+    for (mut timer, mut bg_color) in cursor.iter_mut() {
+        timer.tick(time.delta());
+        if timer.just_finished() {
+            if bg_color.0.alpha() != 0. {
+                bg_color.0.set_alpha(0.);
+            } else {
+                bg_color.0.set_alpha(0.5);
+            }
+        }
+    }
+}

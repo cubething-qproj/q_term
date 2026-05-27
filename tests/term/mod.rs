@@ -11,6 +11,7 @@ mod pending_scroll;
 mod resize_hidpi;
 mod row_target_invariant;
 mod shift;
+mod sm_rm;
 mod trackpad_scroll_accumulates;
 mod vtsize_cw_divide_by_zero;
 mod writeback;

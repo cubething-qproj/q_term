@@ -38,6 +38,9 @@ fn setup(mut commands: Commands) {
 
     let mut out = String::new();
 
+    // Hide the cursor (DECTCEM) — this example is display-only.
+    out.push_str("\x1b[?25l");
+
     // Header
     out.push_str("  ANSI Color Palette\n");
     out.push_str("  ──────────────────\n\n");

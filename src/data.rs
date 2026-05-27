@@ -9,6 +9,7 @@ mod terminfo {
     pub struct TermInfo {
         pub id: Entity,
         pub cursor: &'static VtCursor,
+        pub modes: &'static VtModes,
         pub line_target: &'static VtLineTarget,
         pub viewport: &'static VtViewport,
         pub size: &'static VtSize,
@@ -314,9 +315,34 @@ mod terminal {
         VtSize,
         VtViewport,
         VtTabStop,
+        VtModes,
         Name::new("Terminal"),
         )]
     pub struct Terminal;
+
+    /// DEC private modes the parser tracks per [`Terminal`]. Mutated by
+    /// SM (`CSI ? Pn h`) and RM (`CSI ? Pn l`); read by render systems
+    /// to drive cursor visibility, wrap behavior, etc.
+    ///
+    /// Fields default to the values a freshly opened xterm would
+    /// report — i.e. cursor visible (DECTCEM) and auto-wrap on
+    /// (DECAWM). Add new modes as one-line field additions; the
+    /// dispatch site in `ansi.rs` is the single place that needs to
+    /// learn the new code.
+    #[derive(Component, Reflect, Clone, Copy, Debug, PartialEq, Eq)]
+    pub struct VtModes {
+        /// DECTCEM (`?25`). Cursor visible when `true`.
+        pub dectcem: bool,
+        /// DECAWM (`?7`). Auto-wrap at the right margin when `true`.
+        /// Not yet honored by the renderer — reserved for the
+        /// follow-up DECAWM PR so the dispatch table stays stable.
+        pub decawm: bool,
+    }
+    impl Default for VtModes {
+        fn default() -> Self {
+            Self { dectcem: true, decawm: true }
+        }
+    }
 
     /// Cursor for the [`Terminal`]. Points at a given char index into a
     /// [`TerminalRow`] (nth from end). Note that this is relative to the

@@ -35,6 +35,8 @@ fn main() {
         ));
 
         // test scrolling...
+        // Hide the cursor (DECTCEM) — these examples are display-only.
+        commands.write_message(TermStdOut::write(term_id, "\x1b[?25l"));
         for i in 0..20 {
             commands.write_message(TermStdOut::writeln(term_id, format!("{i}")));
         }

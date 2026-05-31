@@ -38,7 +38,6 @@ pub fn update_char_width(
         // Convert physical -> logical pixels so this matches `LineHeight`
         // and the logical-pixel UI size used in `resize`.
         let width_logical = node.size().x * node.inverse_scale_factor();
-        debug!("update_char_width => {:?}", width_logical);
         commands
             .entity(entity)
             .insert(VtCharWidth::new(cw.target(), width_logical));
@@ -331,7 +330,15 @@ pub fn update_cursor_display(
 
 pub fn flash_cursor(
     time: Res<Time>,
-    mut cursor: Query<(&ChildOf, &mut VtStrobeTimer, &VtCursorColor, &mut BackgroundColor), With<VtUiCursor>>,
+    mut cursor: Query<
+        (
+            &ChildOf,
+            &mut VtStrobeTimer,
+            &VtCursorColor,
+            &mut BackgroundColor,
+        ),
+        With<VtUiCursor>,
+    >,
     q_ui: Query<&VtUi>,
     q_modes: Query<&VtModes>,
 ) {

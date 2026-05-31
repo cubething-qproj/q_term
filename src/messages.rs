@@ -51,25 +51,21 @@ pub fn drain_pending(
 /// Targets whose [`TermInfo`] cannot be resolved this frame have their
 /// pending writes attached as a [`PendingTermInput`] component on the
 /// target; `drain_pending` re-emits them once the target resolves.
-/// Emits [`TermBufferMutatedMsg`], [`TermCursorMovedMsg`], and
-/// [`TermRedrawRequestedMsg`] per affected target.
+/// Emits [`TermRedrawRequestedMsg`] per affected target.
 pub fn process_input(
     mut stdout: MessageReader<TermStdOut>,
     mut stderr: MessageReader<TermStdErr>,
     mut commands: Commands,
-    mut buffer_mutated: MessageWriter<TermBufferMutatedMsg>,
-    mut cursor_moved: MessageWriter<TermCursorMovedMsg>,
     mut redraw_requested: MessageWriter<TermRedrawRequestedMsg>,
     mut stdin_writer: MessageWriter<'_, TermStdIn>,
     cap: Res<PendingTermInputCap>,
     q_terminfo: Query<TermInfo>,
     q_lines: Query<(Entity, &VtLine, &VtRowTarget)>,
     q_rows: Query<(Entity, &VtRow)>,
+    q_shell: Query<(Entity), With<Shell>>,
+    q_fg: Query<(Entity), With<ForegroundJob>>,
 ) {
     trace!("process_input");
-    // Both channels feed the same parser; channel distinction is
-    // preserved at the type level for future consumers (e.g. an
-    // stderr-tinting renderer) but the grid sees them as one stream.
     let mut to_write: HashMap<Entity, Vec<&TermWrite>> = HashMap::new();
     for msg in stdout.read() {
         to_write.entry(msg.term).or_default().extend(&msg.writes);
@@ -93,8 +89,11 @@ pub fn process_input(
                 continue;
             }
         };
-        let mut grid = Grid::new(&terminfo, &q_lines, &q_rows);
-        let cursor_before = grid.cursor();
+        let fg_job = {
+            let shell_id = q_shell.get(terminfo.shell_target.target());
+            q_fg.get(shell)
+            }.unwrap_or(Entity::PLACEHOLDER)
+        let mut grid = Grid::new(&terminfo, fg_job, &q_lines, &q_rows);
         {
             let mut performer = AnsiPerformer::new(&mut grid, &mut stdin_writer, target);
             let mut stream = AnsiParser::new();
@@ -109,15 +108,7 @@ pub fn process_input(
                 }
             }
         }
-        let cursor = grid.cursor();
         grid.sync(&mut commands);
-        buffer_mutated.write(TermBufferMutatedMsg::new(target));
-        if cursor.row != cursor_before.row
-            || cursor.col != cursor_before.col
-            || cursor.pending_wrap != cursor_before.pending_wrap
-        {
-            cursor_moved.write(TermCursorMovedMsg::new(target, cursor));
-        }
         redraw_requested.write(TermRedrawRequestedMsg::new(target));
     }
 }
@@ -188,7 +179,6 @@ pub fn apply_scroll(
 pub fn apply_reflow(
     mut messages: MessageReader<TermReflowMsg>,
     mut commands: Commands,
-    mut buffer_mutated: MessageWriter<TermBufferMutatedMsg>,
     mut redraw_requested: MessageWriter<TermRedrawRequestedMsg>,
     q_terminfo: Query<TermInfo>,
     q_lines: Query<(Entity, &VtLine)>,
@@ -252,7 +242,6 @@ pub fn apply_reflow(
         for id in row_ids.into_iter().rev() {
             commands.entity(id).insert(VtViewportRow::new(terminfo.id));
         }
-        buffer_mutated.write(TermBufferMutatedMsg::new(target));
         redraw_requested.write(TermRedrawRequestedMsg::new(target));
     }
 }

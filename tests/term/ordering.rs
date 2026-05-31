@@ -1,14 +1,14 @@
 use crate::prelude::*;
 
-/// Counts how many `TermBufferMutatedMsg` entries the in-test reader has
+/// Counts how many `TermRedrawRequestedMsg` entries the in-test reader has
 /// observed across all frames.
 #[derive(Resource, Default, Debug)]
 struct MutatedReadCount(u32);
 
 /// Reader system installed in `TerminalSystems::Process` after
-/// `process_input`. Counts every `TermBufferMutatedMsg` it sees.
+/// `process_input`. Counts every `TermRedrawRequestedMsg` it sees.
 fn count_mutations(
-    mut reader: MessageReader<TermBufferMutatedMsg>,
+    mut reader: MessageReader<TermRedrawRequestedMsg>,
     mut count: ResMut<MutatedReadCount>,
 ) {
     for _ in reader.read() {
@@ -17,7 +17,7 @@ fn count_mutations(
 }
 
 /// Verifies that a `TermStdOut` written from `Startup` produces exactly
-/// one `TermBufferMutatedMsg` visible to a reader sitting after
+/// one `TermRedrawRequestedMsg` visible to a reader sitting after
 /// `process_input` in the `TerminalSystems::Process` chain on the same
 /// frame. Exercises the writer to reader seam inside `Process`.
 #[test]
@@ -37,7 +37,7 @@ fn process_chain_emits_buffer_mutated_in_order() {
 
     // Pin the reader strictly between `process_input` and the rest of the
     // chain. Without `.before(apply_scroll)` Bevy is free to schedule it
-    // after `apply_reflow`, which also emits `TermBufferMutatedMsg` (the
+    // after `apply_reflow`, which also emits `TermRedrawRequestedMsg` (the
     // `VtSize::on_insert` hook fires a reflow), poisoning the count.
     app.add_systems(
         Update,
@@ -55,7 +55,7 @@ fn process_chain_emits_buffer_mutated_in_order() {
         }
         r!(commands.assert(
             count.0 == 1,
-            "Reader should observe exactly one TermBufferMutatedMsg",
+            "Reader should observe exactly one TermRedrawRequestedMessage",
         ));
         commands.write_message(AppExit::Success);
     });

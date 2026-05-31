@@ -16,7 +16,7 @@ mod terminfo {
         pub size: &'static VtSize,
         pub scroll_pos: &'static VtScrollPos,
         pub tab_stop: &'static VtTabStop,
-        pub shell_target: &'static ShellTarget,
+        pub shell_target: Option<&'static ShellTarget>,
     }
     impl<'w, 's> TermInfoItem<'w, 's> {
         #[inline(always)]
@@ -102,6 +102,11 @@ mod shell {
     #[derive(Component, Reflect, Debug)]
     #[relationship_target(relationship = Shell)]
     pub struct ShellTarget(Entity);
+    impl ShellTarget {
+        pub fn target(&self) -> Entity {
+            self.0
+        }
+    }
 
     /// Marker for a process owned by a [`Shell`].
     /// As long as this component is attached to
@@ -161,8 +166,6 @@ mod io {
         Submit,
         /// Backspace
         Erase,
-        ///
-        Interrupt,
         /// End of file.
         /// Typically submitted via (^D)
         Eof,

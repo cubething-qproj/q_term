@@ -62,8 +62,7 @@ pub fn process_input(
     q_terminfo: Query<TermInfo>,
     q_lines: Query<(Entity, &VtLine, &VtRowTarget)>,
     q_rows: Query<(Entity, &VtRow)>,
-    q_shell: Query<(Entity), With<Shell>>,
-    q_fg: Query<(Entity), With<ForegroundJob>>,
+    q_fg: Query<Entity, With<ForegroundJob>>,
 ) {
     trace!("process_input");
     let mut to_write: HashMap<Entity, Vec<&TermWrite>> = HashMap::new();
@@ -89,10 +88,12 @@ pub fn process_input(
                 continue;
             }
         };
-        let fg_job = {
-            let shell_id = q_shell.get(terminfo.shell_target.target());
-            q_fg.get(shell)
-            }.unwrap_or(Entity::PLACEHOLDER)
+        let fg_job = terminfo
+            .shell_target
+            .map(|t| t.target())
+            .and_then(|shell_id| q_fg.get(shell_id).ok())
+            .unwrap_or(Entity::PLACEHOLDER);
+
         let mut grid = Grid::new(&terminfo, fg_job, &q_lines, &q_rows);
         {
             let mut performer = AnsiPerformer::new(&mut grid, &mut stdin_writer, target);

@@ -79,36 +79,231 @@ pub use terminfo::*;
 mod pty {
     use super::*;
 
-    /// Pseudo-terminal entity marker. This component is in charge
-    /// of storing the input buffer and sending data from the [`PtyLeader`]
-    /// (the terminal) to the [`PtyFollower`] (the shell).
+    /// Pseudo-terminal entity marker. This component is in charge of sending
+    /// data from the [`PtyLeader`] (the terminal) to the [`PtyFollower`] (the
+    /// shell).
+    ///
+    /// To attach an entity to this Pty, insert a [`PtyLeader`],
+    /// [`PtyFollower`], or [`PtyForeground`] component. Read their
+    /// documentation to determine when each is appropriate.
+    ///
+    /// ```rust
+    ///# use q_term::prelude::*;
+    ///# let mut app = App::new();
+    ///# let mut world = app.world_mut();
+    ///# let mut commands = world.commands();
+    ///# #[derive(Component)]
+    ///# struct Shell;
+    ///# #[derive(Component)]
+    ///# struct Job;
+    /// let pty = commands.spawn(Pty).id();
+    /// // attach a terminal
+    /// commands.spawn(( Terminal, PtyLeader(pty) ));
+    /// // attach a shell
+    /// commands.spawn(( Shell, PtyFollower(pty), PtyForeground(pty) ));
+    /// // foreground a job (will steal foreground on spawn)
+    /// commands.spawn(( Job, PtyForeground(pty) ));
+    /// ```
     #[derive(Component, Default, Debug, Reflect)]
-    #[require(
-        PtyLeader(Entity::PLACEHOLDER),
-        PtyFollower(Entity::PLACEHOLDER),
-        LineDiscipline
-    )]
-    pub struct Pty {
-        /// The input buffer.
-        pub buffer: String,
-    }
+    #[require(LineDiscipline)]
+    pub struct Pty;
 
     /// How the [`Terminal`] sends information to the [`TerminalShell`].
     /// Canonical mode is the default. It sends lines on submit.
     /// Raw mode sends inputs unbuffered. This is useful for TUIs like vim or htop.
-    #[derive(Component, Default, Reflect, Debug)]
-    #[component(immutable)]
+    #[derive(Component, Reflect, Debug)]
     pub enum LineDiscipline {
-        #[default]
-        Canonical,
+        Canonical { buffer: String },
         Raw,
     }
+    impl Default for LineDiscipline {
+        fn default() -> Self {
+            Self::Canonical {
+                buffer: String::new(),
+            }
+        }
+    }
 
+    /// The side of the PTY which owns the output. The terminal side. Other
+    /// PtyLeader candidates include multiplexers, container runtimes, and IDE
+    /// integrated terminals. In our case, it will always be the terminal.
     #[derive(Component, Reflect, Debug)]
-    pub struct PtyLeader(Entity);
+    #[relationship(relationship_target = PtyLeaderTarget)]
+    pub struct PtyLeader(pub Entity);
 
+    /// See [PtyLeader]
     #[derive(Component, Reflect, Debug)]
-    pub struct PtyFollower(Entity);
+    #[relationship_target(relationship = PtyLeader)]
+    pub struct PtyLeaderTarget(Entity);
+
+    /// The side of the PTY which owns the input. The shell side.
+    #[derive(Component, Reflect, Debug)]
+    #[relationship(relationship_target = PtyFollowerTarget)]
+    pub struct PtyFollower(pub Entity);
+
+    /// See [PtyFollower]
+    #[derive(Component, Reflect, Debug)]
+    #[relationship_target(relationship = PtyFollower)]
+    pub struct PtyFollowerTarget(Entity);
+
+    /// The focused program. Could be the shell or any other process.
+    /// This is the mechanism behind blocking shell input.
+    /// **Important:** this should _only_ be set by the shell.
+    #[derive(Component, Reflect, Debug)]
+    #[relationship(relationship_target = PtyForegroundTarget)]
+    pub struct PtyForeground(pub Entity);
+
+    /// See [PtyForeground]
+    #[derive(Component, Reflect, Debug)]
+    #[relationship_target(relationship = PtyForeground)]
+    pub struct PtyForegroundTarget(Entity);
+
+    #[derive(Debug, Clone, Reflect)]
+    #[non_exhaustive]
+    pub enum LineDisciplineInput {
+        /// Pipe some text to the line discipline.
+        Text(String),
+        /// Clear the canonical mode buffer.
+        /// Typically submitted via newline (\n)
+        Submit,
+        /// Backspace
+        Erase,
+        ///
+        Interrupt,
+        /// End of file.
+        /// Typically submitted via (^D)
+        Eof,
+        // etc
+    }
+
+    #[derive(Message, Debug, Clone, Reflect)]
+    pub struct LineDisciplineMsg {
+        pub pty: Entity,
+        pub input: LineDisciplineInput,
+    }
+
+    /// Terminal signal messages.
+    #[derive(Reflect, Clone, Copy, Debug, PartialEq, Eq, Hash)]
+    #[non_exhaustive]
+    pub enum SignalKind {
+        /// SIGINT
+        /// Produced by: (^C), kill builtin
+        Int,
+        /// SIGQUIT
+        /// Produced by: (^\), kill builtin
+        Quit,
+        /// SIGTSTP
+        /// Produced by: (^Z), kill builtin
+        Tstp,
+        /// SIGTERM
+        /// Produced by: kill builtin
+        Term,
+        /// SIGKILL
+        /// Produced by: kill builtin
+        Kill,
+        /// SIGHUP
+        /// Produced by: pty close, kill builtin
+        Hup,
+        /// SIGCONT
+        /// Produced by: shell (fg/bg resume)
+        Cont,
+        // Usr1, Usr2, Pipe, Chld, Winch as needed
+    }
+
+    /// Message to send a [`TermSignal`]
+    #[derive(Message, Clone, Copy, Debug, Reflect)]
+    pub struct SignalMsg {
+        /// Source [`Pty`]
+        pub pty: Entity,
+        /// Message sink - the targeted job
+        pub target: Entity,
+        /// Signal kind
+        pub signal: SignalKind,
+    }
+
+    /// Reverse-channel bytes flowing toward the application's stdin. The parser
+    /// emits these; an external consumer (`q_shell`, a loopback adapter, a
+    /// test) decides where they go.
+    #[derive(Message, Debug, Clone, Reflect)]
+    pub struct TermStdIn {
+        /// Source [`Pty`]
+        pub pty: Entity,
+        /// Message sink -- the targeted job
+        pub target: Entity,
+        /// Raw bytes. Interpretation left to the consumer.
+        pub writes: Vec<u8>,
+    }
+    impl TermStdIn {
+        /// Construct a [`TermStdIn`] reply from a byte slice.
+        pub fn new(pty: Entity, target: Entity, writes: impl Into<Vec<u8>>) -> Self {
+            Self {
+                pty,
+                target,
+                writes: writes.into(),
+            }
+        }
+    }
+
+    /// Bytes flowing **from the application** into the terminal's
+    /// parser, parameterised by output channel (`1` = stdout,
+    /// `2` = stderr, matching POSIX fd numbers).
+    ///
+    /// Use the [`TermStdOut`] and [`TermStdErr`] aliases at call
+    /// sites; the generic exists so a single impl serves both channels
+    /// while keeping them as distinct Bevy message types (separate
+    /// `Messages<_>` resources, separate `MessageReader`s).
+    ///
+    /// `process_input` reads both channels and feeds them through the
+    /// same parser. Future consumers (e.g. stderr-tinting renderers)
+    /// can filter on channel by reading only the variant they care
+    /// about.
+    #[derive(Message, Debug, Clone, Reflect)]
+    pub struct TermOutputChannel<const CHANNEL: u8> {
+        /// Target terminal entity.
+        pub term: Entity,
+        /// Spans to write into the buffer.
+        pub writes: Vec<TermWrite>,
+    }
+
+    /// Stdout writes from the application (POSIX fd 1).
+    pub type TermStdOut = TermOutputChannel<1>;
+    /// Stderr writes from the application (POSIX fd 2).
+    pub type TermStdErr = TermOutputChannel<2>;
+
+    impl<const CHANNEL: u8> TermOutputChannel<CHANNEL> {
+        /// Construct a [`TermOutputChannel`] with arbitrary write spans.
+        pub fn new(term: Entity, writes: Vec<TermWrite>) -> Self {
+            Self { term, writes }
+        }
+        /// Writes text directly to the buffer. Supports ANSI. For a
+        /// rich-text based API, see [`Self::write_spans`].
+        pub fn write(term: Entity, value: impl ToString) -> Self {
+            let line = value.to_string();
+            Self {
+                term,
+                writes: vec![TermWrite::new(line)],
+            }
+        }
+        /// Writes a simple line to the buffer. Supports ANSI. Will
+        /// append a newline at the end. Will clear styles before and
+        /// after writing. For rich text support, see
+        /// [`Self::write_spans`].
+        pub fn writeln(term: Entity, line: impl ToString) -> Self {
+            let line = line.to_string();
+            Self {
+                term,
+                writes: vec![TermWrite::new(line + "\n").reset_style(true)],
+            }
+        }
+        /// Writes a rich line of text to the terminal. See
+        /// [`TermWrite`] for more detail.
+        pub fn write_spans(term: Entity, spans: Vec<TermWrite>) -> Self {
+            Self {
+                term,
+                writes: spans,
+            }
+        }
+    }
 }
 pub use pty::*;
 
@@ -262,7 +457,10 @@ mod ui {
         /// strobe period for [`flash_cursor`](crate::flash_cursor) to flip
         /// it on.
         fn on_insert(mut world: DeferredWorld, ctx: HookContext) {
-            let color = world.get::<VtCursorColor>(ctx.entity).copied().unwrap_or_default();
+            let color = world
+                .get::<VtCursorColor>(ctx.entity)
+                .copied()
+                .unwrap_or_default();
             if let Some(mut bg) = world.get_mut::<BackgroundColor>(ctx.entity) {
                 bg.0 = *color;
             }
@@ -306,9 +504,22 @@ mod terminal {
     /// component. They do not have to be on the same entity. For
     /// [bevy::ui]-based rendering use [`VtUi`]. For [bevy::sprite]-based
     /// rendering use [`VtUi2d`].
-    #[derive(Component, Default, Reflect)]
+    ///
+    /// No shell is provided by default. You will need to bring your own.
+    ///
+    /// ```rust
+    ///# use q_term::prelude::*;
+    ///# #[derive(Component)]
+    ///# struct Shell;
+    ///# let mut app = App::new();
+    ///# let mut world = app.world_mut();
+    ///# let mut commands = world.commands();
+    /// let pty = commands.spawn(Pty).id();
+    /// commands.spawn((Terminal, PtyLeader(pty)));
+    /// commands.spawn((shell, PtyFollower(pty), PtyForeground(pty)))
+    /// ```
+    #[derive(Component, Reflect)]
     #[require(
-        // Interal
         VtLineTarget,
         VtCursor,
         VtScrollPos,
@@ -316,8 +527,8 @@ mod terminal {
         VtViewport,
         VtTabStop,
         VtModes,
-        Name::new("Terminal"),
-        )]
+        Name::new("Terminal")
+    )]
     pub struct Terminal;
 
     /// DEC private modes the parser tracks per [`Terminal`]. Mutated by
@@ -340,7 +551,10 @@ mod terminal {
     }
     impl Default for VtModes {
         fn default() -> Self {
-            Self { dectcem: true, decawm: true }
+            Self {
+                dectcem: true,
+                decawm: true,
+            }
         }
     }
 
@@ -659,88 +873,6 @@ pub use terminal::*;
 mod events {
     use super::*;
 
-    /// Reverse-channel bytes flowing **toward the application's stdin**
-    /// (e.g. DSR / DA replies, encoded keystrokes, mouse reports). The
-    /// parser emits these; an external consumer (`q_shell`, a loopback
-    /// adapter, a test) decides where they go.
-    #[derive(Message, Debug, Clone, Reflect)]
-    pub struct TermStdIn {
-        /// Target terminal entity.
-        pub term: Entity,
-        /// Raw bytes. Interpretation left to the consumer.
-        pub writes: Vec<u8>,
-    }
-    impl TermStdIn {
-        /// Construct a [`TermStdIn`] reply from a byte slice.
-        pub fn new(term: Entity, writes: impl Into<Vec<u8>>) -> Self {
-            Self {
-                term,
-                writes: writes.into(),
-            }
-        }
-    }
-
-    /// Bytes flowing **from the application** into the terminal's
-    /// parser, parameterised by output channel (`1` = stdout,
-    /// `2` = stderr, matching POSIX fd numbers).
-    ///
-    /// Use the [`TermStdOut`] and [`TermStdErr`] aliases at call
-    /// sites; the generic exists so a single impl serves both channels
-    /// while keeping them as distinct Bevy message types (separate
-    /// `Messages<_>` resources, separate `MessageReader`s).
-    ///
-    /// `process_input` reads both channels and feeds them through the
-    /// same parser. Future consumers (e.g. stderr-tinting renderers)
-    /// can filter on channel by reading only the variant they care
-    /// about.
-    #[derive(Message, Debug, Clone, Reflect)]
-    pub struct TermOutputChannel<const CHANNEL: u8> {
-        /// Target terminal entity.
-        pub term: Entity,
-        /// Spans to write into the buffer.
-        pub writes: Vec<TermWrite>,
-    }
-
-    /// Stdout writes from the application (POSIX fd 1).
-    pub type TermStdOut = TermOutputChannel<1>;
-    /// Stderr writes from the application (POSIX fd 2).
-    pub type TermStdErr = TermOutputChannel<2>;
-
-    impl<const CHANNEL: u8> TermOutputChannel<CHANNEL> {
-        /// Construct a [`TermOutputChannel`] with arbitrary write spans.
-        pub fn new(term: Entity, writes: Vec<TermWrite>) -> Self {
-            Self { term, writes }
-        }
-        /// Writes text directly to the buffer. Supports ANSI. For a
-        /// rich-text based API, see [`Self::write_spans`].
-        pub fn write(term: Entity, value: impl ToString) -> Self {
-            let line = value.to_string();
-            Self {
-                term,
-                writes: vec![TermWrite::new(line)],
-            }
-        }
-        /// Writes a simple line to the buffer. Supports ANSI. Will
-        /// append a newline at the end. Will clear styles before and
-        /// after writing. For rich text support, see
-        /// [`Self::write_spans`].
-        pub fn writeln(term: Entity, line: impl ToString) -> Self {
-            let line = line.to_string();
-            Self {
-                term,
-                writes: vec![TermWrite::new(line + "\n").reset_style(true)],
-            }
-        }
-        /// Writes a rich line of text to the terminal. See
-        /// [`TermWrite`] for more detail.
-        pub fn write_spans(term: Entity, spans: Vec<TermWrite>) -> Self {
-            Self {
-                term,
-                writes: spans,
-            }
-        }
-    }
-
     /// Request to scroll a terminal viewport by `delta` lines.
     #[derive(Message, Debug, Clone, Reflect)]
     pub struct TermScrollMsg {
@@ -822,22 +954,68 @@ mod events {
             Self { term }
         }
     }
+}
+pub use events::*;
 
-    /// Per-term byte cap for [`PendingTermInput`] queues. Default
-    /// 1 MiB. Override by inserting before [`TerminalPlugin`] runs or
-    /// by reassigning at runtime.
-    #[derive(Resource, Debug, Clone, Copy, Reflect)]
-    pub struct PendingTermInputCap {
-        /// Maximum total bytes of `TermWrite::text` queued per term
-        /// before [`PendingTermInput::push_writes`] starts evicting
-        /// oldest spans (whole-span FIFO).
-        pub bytes: usize,
+mod command {
+    use super::*;
+    use std::fmt::Debug;
+
+    /// Generic command bus message addressed to a terminal entity.
+    ///
+    /// Reserves the contract that downstream consumers hook into. Production
+    /// and consumption happen in [`TerminalSystems::Input`]; the writer->reader
+    /// pair lives in the same schedule so messages are observed within a single
+    /// frame.
+    ///
+    /// `q_term` ships only the data shape here. Convenience surfaces
+    /// such as `println` deliberately live on the `shell` side via
+    /// extension traits or wrapper types — the formatting policy and
+    /// any redirection into [`TermStdOut`] is shell scope, not
+    /// terminal scope.
+    ///
+    /// `q_term` does NOT register any concrete `CommandMsg<T>`;
+    /// consumers call [`register_command_msg`] for the `T`s they
+    /// need.
+    #[derive(Message, Debug, Clone, Reflect)]
+    pub struct CommandMsg<T>
+    where
+        T: Reflect + TypePath + Clone + Debug + Send + Sync + 'static,
+    {
+        /// Terminal entity the command is addressed to.
+        pub term: Entity,
+        /// Command payload. Concrete `T` is owned by the consumer.
+        pub command: T,
     }
-    impl Default for PendingTermInputCap {
-        fn default() -> Self {
-            Self { bytes: 1 << 20 }
+
+    impl<T> CommandMsg<T>
+    where
+        T: Reflect + TypePath + Clone + Debug + Send + Sync + 'static,
+    {
+        /// Construct a [`CommandMsg`] addressed to `term`.
+        pub fn new(term: Entity, command: T) -> Self {
+            Self { term, command }
         }
     }
+
+    /// Register `CommandMsg<T>` as a Bevy message on `app`.
+    ///
+    /// Canonical registration point for generic command messages.
+    /// `q_term::TerminalPlugin` does not register any specific `T`
+    /// because the set of payload types is owned by downstream
+    /// consumers (`shell`, `quell`, application code). Each consumer
+    /// calls this helper once per `T` it cares about.
+    pub fn register_term_cmd<T>(app: &mut App)
+    where
+        T: Reflect + TypePath + Clone + Debug + Send + Sync + 'static,
+    {
+        app.add_message::<CommandMsg<T>>();
+    }
+}
+pub use command::*;
+
+mod helpers {
+    use super::*;
 
     /// Pending [`TermStdOut`] writes queued on a term whose
     /// [`TermInfo`] could not be resolved when the message was
@@ -927,84 +1105,21 @@ mod events {
         }
     }
 
-    /// Notification that focus on a terminal entity changed.
-    ///
-    /// Stub; no producer or consumer wired up yet.
-    #[derive(Message, Debug, Clone, Reflect)]
-    pub struct TermFocusChangedMsg {
-        /// Target terminal entity.
-        pub term: Entity,
-        /// `true` when the terminal gained focus, `false` when it lost it.
-        pub focused: bool,
+    /// Per-term byte cap for [`PendingTermInput`] queues. Default
+    /// 1 MiB. Override by inserting before [`TerminalPlugin`] runs or
+    /// by reassigning at runtime.
+    #[derive(Resource, Debug, Clone, Copy, Reflect)]
+    pub struct PendingTermInputCap {
+        /// Maximum total bytes of `TermWrite::text` queued per term
+        /// before [`PendingTermInput::push_writes`] starts evicting
+        /// oldest spans (whole-span FIFO).
+        pub bytes: usize,
     }
-    impl TermFocusChangedMsg {
-        /// Construct a [`TermFocusChangedMsg`].
-        pub fn new(term: Entity, focused: bool) -> Self {
-            Self { term, focused }
+    impl Default for PendingTermInputCap {
+        fn default() -> Self {
+            Self { bytes: 1 << 20 }
         }
     }
-}
-pub use events::*;
-
-mod command {
-    use super::*;
-    use std::fmt::Debug;
-
-    /// Generic command bus message addressed to a terminal entity.
-    ///
-    /// Reserves the contract that downstream consumers hook into. Production
-    /// and consumption happen in [`TerminalSystems::Input`]; the writer->reader
-    /// pair lives in the same schedule so messages are observed within a single
-    /// frame.
-    ///
-    /// `q_term` ships only the data shape here. Convenience surfaces
-    /// such as `println` deliberately live on the `shell` side via
-    /// extension traits or wrapper types — the formatting policy and
-    /// any redirection into [`TermStdOut`] is shell scope, not
-    /// terminal scope.
-    ///
-    /// `q_term` does NOT register any concrete `CommandMsg<T>`;
-    /// consumers call [`register_command_msg`] for the `T`s they
-    /// need.
-    #[derive(Message, Debug, Clone, Reflect)]
-    pub struct CommandMsg<T>
-    where
-        T: Reflect + TypePath + Clone + Debug + Send + Sync + 'static,
-    {
-        /// Terminal entity the command is addressed to.
-        pub term: Entity,
-        /// Command payload. Concrete `T` is owned by the consumer.
-        pub command: T,
-    }
-
-    impl<T> CommandMsg<T>
-    where
-        T: Reflect + TypePath + Clone + Debug + Send + Sync + 'static,
-    {
-        /// Construct a [`CommandMsg`] addressed to `term`.
-        pub fn new(term: Entity, command: T) -> Self {
-            Self { term, command }
-        }
-    }
-
-    /// Register `CommandMsg<T>` as a Bevy message on `app`.
-    ///
-    /// Canonical registration point for generic command messages.
-    /// `q_term::TerminalPlugin` does not register any specific `T`
-    /// because the set of payload types is owned by downstream
-    /// consumers (`shell`, `quell`, application code). Each consumer
-    /// calls this helper once per `T` it cares about.
-    pub fn register_term_cmd<T>(app: &mut App)
-    where
-        T: Reflect + TypePath + Clone + Debug + Send + Sync + 'static,
-    {
-        app.add_message::<CommandMsg<T>>();
-    }
-}
-pub use command::*;
-
-pub mod helpers {
-    use super::*;
 
     /// This struct hold all the necessary data to spawn a terminal text span in
     /// a convenient format. In order to facilitate text wrapping and ANSI

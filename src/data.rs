@@ -1,5 +1,6 @@
 use crate::prelude::*;
 
+/// User-facing terminal API.
 mod terminfo {
     use super::*;
     use bevy::ecs::query::QueryData;
@@ -76,39 +77,62 @@ mod terminfo {
 }
 pub use terminfo::*;
 
-mod pty {
+/// Basic data types required for a shell implementation.
+mod shell {
+    use bevy::ecs::{lifecycle::HookContext, world::DeferredWorld};
+
+    use super::*;
+    // Kernel equivalent: pty follower.
+    // Obviated by single-use.
+    /// Marker struct for shell entities. The systems associated with this
+    /// struct must be implemented outside this crate.
+    #[derive(Component, Reflect, Debug)]
+    #[relationship(relationship_target = ShellTarget)]
+    #[component(on_add = Self::on_add)]
+    pub struct Shell(pub Entity);
+    impl Shell {
+        fn on_add(mut world: DeferredWorld, ctx: HookContext) {
+            let mut cmds = world.commands();
+            cmds.entity(ctx.entity).insert(ForegroundJob(ctx.entity));
+        }
+    }
+
+    /// Attached to the [`Terminal`] when spawning a [`Shell`].
+    #[derive(Component, Reflect, Debug)]
+    #[relationship_target(relationship = Shell)]
+    pub struct ShellTarget(Entity);
+
+    /// Marker for a process owned by a [`Shell`].
+    /// As long as this component is attached to
+    #[derive(Component, Reflect, Debug)]
+    #[relationship(relationship_target = ShellJobTarget)]
+    pub struct ShellJob(pub Entity);
+
+    /// The [`Shell`] which owns this [`Job`].
+    #[derive(Component, Reflect, Debug)]
+    #[relationship_target(relationship = ShellJob)]
+    pub struct ShellJobTarget(Entity);
+
+    /// The focused program. Could be the shell or any other process.
+    /// This is the mechanism behind blocking shell input.
+    /// All messages sent via [`TermStdIn`] are sent here.
+    /// **Important:** this should _only_ be set by the shell.
+    #[derive(Component, Reflect, Debug)]
+    #[relationship(relationship_target = ForegroundJobTarget)]
+    pub struct ForegroundJob(pub Entity);
+
+    /// Attached to the [`Shell`] which owns this [`ForegroundJob`]
+    #[derive(Component, Reflect, Debug)]
+    #[relationship_target(relationship = ForegroundJob)]
+    pub struct ForegroundJobTarget(Entity);
+}
+pub use shell::*;
+
+/// Input and output channels (to/from 'processes' - terminal, shell, jobs)
+mod io {
     use super::*;
 
-    /// Pseudo-terminal entity marker. This component is in charge of sending
-    /// data from the [`PtyLeader`] (the terminal) to the [`PtyFollower`] (the
-    /// shell).
-    ///
-    /// To attach an entity to this Pty, insert a [`PtyLeader`],
-    /// [`PtyFollower`], or [`PtyForeground`] component. Read their
-    /// documentation to determine when each is appropriate.
-    ///
-    /// ```rust
-    ///# use q_term::prelude::*;
-    ///# let mut app = App::new();
-    ///# let mut world = app.world_mut();
-    ///# let mut commands = world.commands();
-    ///# #[derive(Component)]
-    ///# struct Shell;
-    ///# #[derive(Component)]
-    ///# struct Job;
-    /// let pty = commands.spawn(Pty).id();
-    /// // attach a terminal
-    /// commands.spawn(( Terminal, PtyLeader(pty) ));
-    /// // attach a shell
-    /// commands.spawn(( Shell, PtyFollower(pty), PtyForeground(pty) ));
-    /// // foreground a job (will steal foreground on spawn)
-    /// commands.spawn(( Job, PtyForeground(pty) ));
-    /// ```
-    #[derive(Component, Default, Debug, Reflect)]
-    #[require(LineDiscipline)]
-    pub struct Pty;
-
-    /// How the [`Terminal`] sends information to the [`TerminalShell`].
+    /// How the [`Terminal`] sends information to the [`Shell`].
     /// Canonical mode is the default. It sends lines on submit.
     /// Raw mode sends inputs unbuffered. This is useful for TUIs like vim or htop.
     #[derive(Component, Reflect, Debug)]
@@ -124,43 +148,11 @@ mod pty {
         }
     }
 
-    /// The side of the PTY which owns the output. The terminal side. Other
-    /// PtyLeader candidates include multiplexers, container runtimes, and IDE
-    /// integrated terminals. In our case, it will always be the terminal.
-    #[derive(Component, Reflect, Debug)]
-    #[relationship(relationship_target = PtyLeaderTarget)]
-    pub struct PtyLeader(pub Entity);
-
-    /// See [PtyLeader]
-    #[derive(Component, Reflect, Debug)]
-    #[relationship_target(relationship = PtyLeader)]
-    pub struct PtyLeaderTarget(Entity);
-
-    /// The side of the PTY which owns the input. The shell side.
-    #[derive(Component, Reflect, Debug)]
-    #[relationship(relationship_target = PtyFollowerTarget)]
-    pub struct PtyFollower(pub Entity);
-
-    /// See [PtyFollower]
-    #[derive(Component, Reflect, Debug)]
-    #[relationship_target(relationship = PtyFollower)]
-    pub struct PtyFollowerTarget(Entity);
-
-    /// The focused program. Could be the shell or any other process.
-    /// This is the mechanism behind blocking shell input.
-    /// **Important:** this should _only_ be set by the shell.
-    #[derive(Component, Reflect, Debug)]
-    #[relationship(relationship_target = PtyForegroundTarget)]
-    pub struct PtyForeground(pub Entity);
-
-    /// See [PtyForeground]
-    #[derive(Component, Reflect, Debug)]
-    #[relationship_target(relationship = PtyForeground)]
-    pub struct PtyForegroundTarget(Entity);
-
+    /// Keystrokes et al. sent to the [`Terminal`] which must be interpreted by
+    /// the [`LineDiscipline`]
     #[derive(Debug, Clone, Reflect)]
     #[non_exhaustive]
-    pub enum LineDisciplineInput {
+    pub enum TermInput {
         /// Pipe some text to the line discipline.
         Text(String),
         /// Clear the canonical mode buffer.
@@ -176,13 +168,15 @@ mod pty {
         // etc
     }
 
+    /// Sends a message to the [`Terminal`], to be interpreted by the
+    /// [`LineDiscipline`]
     #[derive(Message, Debug, Clone, Reflect)]
-    pub struct LineDisciplineMsg {
+    pub struct TermInputMsg {
         pub pty: Entity,
-        pub input: LineDisciplineInput,
+        pub input: TermInput,
     }
 
-    /// Terminal signal messages.
+    /// Process signal messages. Interpreted by [`Job`] entities.
     #[derive(Reflect, Clone, Copy, Debug, PartialEq, Eq, Hash)]
     #[non_exhaustive]
     pub enum SignalKind {
@@ -210,7 +204,8 @@ mod pty {
         // Usr1, Usr2, Pipe, Chld, Winch as needed
     }
 
-    /// Message to send a [`TermSignal`]
+    /// Message to send a signal to a [`Job`].
+    /// These are also known as interrupts.
     #[derive(Message, Clone, Copy, Debug, Reflect)]
     pub struct SignalMsg {
         /// Source [`Pty`]
@@ -221,13 +216,17 @@ mod pty {
         pub signal: SignalKind,
     }
 
-    /// Reverse-channel bytes flowing toward the application's stdin. The parser
-    /// emits these; an external consumer (`q_shell`, a loopback adapter, a
-    /// test) decides where they go.
+    // TODO: This API needs to be completely re-thought.
+    // Where do we translate from span-based to ANSI?
+    // Probably want to keep the span-based writes _ONLY_ at
+    // the consumer level _if that._
+
+    /// Bytes flowing toward a running process. An external consumer such as
+    /// a shell determines where it goes.
     #[derive(Message, Debug, Clone, Reflect)]
     pub struct TermStdIn {
-        /// Source [`Pty`]
-        pub pty: Entity,
+        /// Source [`Terminal`]
+        pub term: Entity,
         /// Message sink -- the targeted job
         pub target: Entity,
         /// Raw bytes. Interpretation left to the consumer.
@@ -235,28 +234,23 @@ mod pty {
     }
     impl TermStdIn {
         /// Construct a [`TermStdIn`] reply from a byte slice.
-        pub fn new(pty: Entity, target: Entity, writes: impl Into<Vec<u8>>) -> Self {
+        pub fn new(term: Entity, target: Entity, writes: impl Into<Vec<u8>>) -> Self {
             Self {
-                pty,
+                term,
                 target,
                 writes: writes.into(),
             }
         }
     }
 
-    /// Bytes flowing **from the application** into the terminal's
-    /// parser, parameterised by output channel (`1` = stdout,
+    /// Flows from a [`Job`] or [`Shell`] into a [`Terminal`]'s
+    /// ANSI parser. Parameterised by output channel (`1` = stdout,
     /// `2` = stderr, matching POSIX fd numbers).
     ///
     /// Use the [`TermStdOut`] and [`TermStdErr`] aliases at call
-    /// sites; the generic exists so a single impl serves both channels
+    /// sites. The generic exists so a single impl serves both channels
     /// while keeping them as distinct Bevy message types (separate
-    /// `Messages<_>` resources, separate `MessageReader`s).
-    ///
-    /// `process_input` reads both channels and feeds them through the
-    /// same parser. Future consumers (e.g. stderr-tinting renderers)
-    /// can filter on channel by reading only the variant they care
-    /// about.
+    /// [`Message`] resources, separate [`MessageReader`]s).
     #[derive(Message, Debug, Clone, Reflect)]
     pub struct TermOutputChannel<const CHANNEL: u8> {
         /// Target terminal entity.
@@ -265,9 +259,9 @@ mod pty {
         pub writes: Vec<TermWrite>,
     }
 
-    /// Stdout writes from the application (POSIX fd 1).
+    /// Stdout writes to the [`Terminal`]. (POSIX fd 1).
     pub type TermStdOut = TermOutputChannel<1>;
-    /// Stderr writes from the application (POSIX fd 2).
+    /// Stderr writes to the [`Terminal`]. (POSIX fd 2).
     pub type TermStdErr = TermOutputChannel<2>;
 
     impl<const CHANNEL: u8> TermOutputChannel<CHANNEL> {
@@ -305,9 +299,12 @@ mod pty {
         }
     }
 }
-pub use pty::*;
+pub use io::*;
 
+/// Rendering via [bevy::ui]
 mod ui {
+    use std::time::Duration;
+
     use bevy::{
         ecs::{lifecycle::HookContext, world::DeferredWorld},
         text::LineHeight,
@@ -467,6 +464,20 @@ mod ui {
         }
     }
 
+    /// The duration between cursor visibility state changes.
+    #[derive(Reflect, Component, PartialEq, Debug, Deref, DerefMut)]
+    pub struct VtStrobeTimer(Timer);
+    impl VtStrobeTimer {
+        pub fn new(duration: Duration) -> Self {
+            Self(Timer::new(duration, TimerMode::Repeating))
+        }
+    }
+    impl Default for VtStrobeTimer {
+        fn default() -> Self {
+            Self(Timer::new(Duration::from_millis(530), TimerMode::Repeating))
+        }
+    }
+
     /// The cursor's style. Defaults to Block.
     #[derive(Reflect, Component, PartialEq, Eq, Default, Debug)]
     pub enum VtCursorStyle {
@@ -487,9 +498,8 @@ mod ui {
 }
 pub use ui::*;
 
+/// The virtual terminal backend
 mod terminal {
-    use std::time::Duration;
-
     use super::*;
 
     use bevy::ecs::{lifecycle::HookContext, world::DeferredWorld};
@@ -509,14 +519,11 @@ mod terminal {
     ///
     /// ```rust
     ///# use q_term::prelude::*;
-    ///# #[derive(Component)]
-    ///# struct Shell;
     ///# let mut app = App::new();
     ///# let mut world = app.world_mut();
     ///# let mut commands = world.commands();
-    /// let pty = commands.spawn(Pty).id();
-    /// commands.spawn((Terminal, PtyLeader(pty)));
-    /// commands.spawn((shell, PtyFollower(pty), PtyForeground(pty)))
+    /// let term_id = commands.spawn(Terminal).id();
+    /// commands.spawn(( Shell(term_id) ))
     /// ```
     #[derive(Component, Reflect)]
     #[require(
@@ -588,19 +595,6 @@ mod terminal {
                 col: char,
                 pending_wrap: false,
             }
-        }
-    }
-    /// The duration between cursor visibility state changes.
-    #[derive(Reflect, Component, PartialEq, Debug, Deref, DerefMut)]
-    pub struct VtStrobeTimer(Timer);
-    impl VtStrobeTimer {
-        pub fn new(duration: Duration) -> Self {
-            Self(Timer::new(duration, TimerMode::Repeating))
-        }
-    }
-    impl Default for VtStrobeTimer {
-        fn default() -> Self {
-            Self(Timer::new(Duration::from_millis(530), TimerMode::Repeating))
         }
     }
 
@@ -870,6 +864,7 @@ mod terminal {
 }
 pub use terminal::*;
 
+/// Events which modify the virtual terminal display.
 mod events {
     use super::*;
 
@@ -957,63 +952,7 @@ mod events {
 }
 pub use events::*;
 
-mod command {
-    use super::*;
-    use std::fmt::Debug;
-
-    /// Generic command bus message addressed to a terminal entity.
-    ///
-    /// Reserves the contract that downstream consumers hook into. Production
-    /// and consumption happen in [`TerminalSystems::Input`]; the writer->reader
-    /// pair lives in the same schedule so messages are observed within a single
-    /// frame.
-    ///
-    /// `q_term` ships only the data shape here. Convenience surfaces
-    /// such as `println` deliberately live on the `shell` side via
-    /// extension traits or wrapper types — the formatting policy and
-    /// any redirection into [`TermStdOut`] is shell scope, not
-    /// terminal scope.
-    ///
-    /// `q_term` does NOT register any concrete `CommandMsg<T>`;
-    /// consumers call [`register_command_msg`] for the `T`s they
-    /// need.
-    #[derive(Message, Debug, Clone, Reflect)]
-    pub struct CommandMsg<T>
-    where
-        T: Reflect + TypePath + Clone + Debug + Send + Sync + 'static,
-    {
-        /// Terminal entity the command is addressed to.
-        pub term: Entity,
-        /// Command payload. Concrete `T` is owned by the consumer.
-        pub command: T,
-    }
-
-    impl<T> CommandMsg<T>
-    where
-        T: Reflect + TypePath + Clone + Debug + Send + Sync + 'static,
-    {
-        /// Construct a [`CommandMsg`] addressed to `term`.
-        pub fn new(term: Entity, command: T) -> Self {
-            Self { term, command }
-        }
-    }
-
-    /// Register `CommandMsg<T>` as a Bevy message on `app`.
-    ///
-    /// Canonical registration point for generic command messages.
-    /// `q_term::TerminalPlugin` does not register any specific `T`
-    /// because the set of payload types is owned by downstream
-    /// consumers (`shell`, `quell`, application code). Each consumer
-    /// calls this helper once per `T` it cares about.
-    pub fn register_term_cmd<T>(app: &mut App)
-    where
-        T: Reflect + TypePath + Clone + Debug + Send + Sync + 'static,
-    {
-        app.add_message::<CommandMsg<T>>();
-    }
-}
-pub use command::*;
-
+/// Misc
 mod helpers {
     use super::*;
 

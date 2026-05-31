@@ -38,10 +38,7 @@ impl Plugin for TerminalPlugin {
         app.add_message::<TermScrollMsg>();
         app.add_message::<TermJumpToBottomMsg>();
         app.add_message::<TermReflowMsg>();
-        app.add_message::<TermBufferMutatedMsg>();
-        app.add_message::<TermCursorMovedMsg>();
         app.add_message::<TermRedrawRequestedMsg>();
-        app.add_message::<TermFocusChangedMsg>();
 
         app.init_resource::<PendingTermInputCap>();
         app.init_resource::<VtScrollSensitivity>();

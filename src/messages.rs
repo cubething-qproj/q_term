@@ -62,7 +62,7 @@ pub fn process_input(
     q_terminfo: Query<TermInfo>,
     q_lines: Query<(Entity, &VtLine, &VtRowTarget)>,
     q_rows: Query<(Entity, &VtRow)>,
-    q_fg: Query<Entity, With<ForegroundJob>>,
+    q_fg: Query<Entity, With<ForegroundProcess>>,
 ) {
     trace!("process_input");
     let mut to_write: HashMap<Entity, Vec<&TermWrite>> = HashMap::new();
@@ -175,8 +175,7 @@ pub fn apply_scroll(
 /// Promoted from a one-shot helper so reflow participates in the
 /// `Process` chain like any other consumer. Despawns the existing
 /// row/viewport caches, then rebuilds them from the logical lines.
-/// Emits [`TermBufferMutatedMsg`] and [`TermRedrawRequestedMsg`] per
-/// affected target.
+/// Emits [`TermRedrawRequestedMsg`] per affected target.
 pub fn apply_reflow(
     mut messages: MessageReader<TermReflowMsg>,
     mut commands: Commands,

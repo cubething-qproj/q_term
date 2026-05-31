@@ -80,7 +80,7 @@ pub use terminfo::*;
 
 /// Basic data types required for a shell implementation.
 mod shell {
-    use bevy::ecs::{lifecycle::HookContext, world::DeferredWorld};
+    use bevy::ecs::{lifecycle::HookContext, schedule::ScheduleLabel, world::DeferredWorld};
 
     use super::*;
     // Kernel equivalent: pty follower.
@@ -94,7 +94,8 @@ mod shell {
     impl Shell {
         fn on_add(mut world: DeferredWorld, ctx: HookContext) {
             let mut cmds = world.commands();
-            cmds.entity(ctx.entity).insert(ForegroundJob(ctx.entity));
+            cmds.entity(ctx.entity)
+                .insert(ForegroundProcess(ctx.entity));
         }
     }
 
@@ -108,8 +109,45 @@ mod shell {
         }
     }
 
+    #[test]
+    fn doctest_process() {
+        use crate::prelude::*;
+        let mut app = App::new();
+        #[derive(ScheduleLabel, Debug, Clone, Copy, PartialEq, Eq, Hash)]
+        struct MySchedule;
+        #[derive(Component)]
+        struct MyProcess;
+        impl Process for MyProcess {
+            fn schedule_label(&self) -> impl ScheduleLabel {
+                MySchedule
+            }
+        }
+        let term = app.world_mut().spawn(Terminal).id();
+        let shell = app.world_mut().spawn(Shell).id();
+        schedule.add_systems(move |mut commands: Commands, terminfo: Query<TermInfo>| {
+            let terminfo = terminfo.get(term).unwrap();
+            terminfo.write(&mut commands, "hi\n");
+        });
+        app.register_process::<MyProcess>();
+    }
+
+    /// A [`Process`] is a potentially long-running [`Schedule`].
+    /// Processes can be run by a [`Shell`] by attaching a [`ShellJob`] component.
+    /// The process continues to run until the [`ShellJob`] component is removed.
+    // TODO: inline doctest here
+    pub trait Process {
+        /// The schedule assocaited with this [`Process`].
+        /// By default this schedule will run on [`Update`].
+        /// Override which step this runs on with [Self::runs_on].
+        fn schedule_label(&self) -> impl ScheduleLabel;
+        /// Override to change which schedule this subschedule runs on.
+        /// Defaults to [`Update`]
+        fn runs_on(&self) -> impl ScheduleLabel {
+            Update
+        }
+    }
+
     /// Marker for a process owned by a [`Shell`].
-    /// As long as this component is attached to
     #[derive(Component, Reflect, Debug)]
     #[relationship(relationship_target = ShellJobTarget)]
     pub struct ShellJob(pub Entity);
@@ -125,11 +163,11 @@ mod shell {
     /// **Important:** this should _only_ be set by the shell.
     #[derive(Component, Reflect, Debug)]
     #[relationship(relationship_target = ForegroundJobTarget)]
-    pub struct ForegroundJob(pub Entity);
+    pub struct ForegroundProcess(pub Entity);
 
     /// Attached to the [`Shell`] which owns this [`ForegroundJob`]
     #[derive(Component, Reflect, Debug)]
-    #[relationship_target(relationship = ForegroundJob)]
+    #[relationship_target(relationship = ForegroundProcess)]
     pub struct ForegroundJobTarget(Entity);
 }
 pub use shell::*;

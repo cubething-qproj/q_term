@@ -1,3 +1,5 @@
+//! ANSI parsing.
+
 #![allow(clippy::upper_case_acronyms)]
 
 use crate::prelude::*;

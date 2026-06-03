@@ -1,3 +1,5 @@
+//! Scheduled systems for q_term.
+
 use bevy::{
     input::mouse::MouseScrollUnit,
     text::{LineHeight, TextLayoutInfo},

@@ -1,3 +1,4 @@
+//! The primary [`Plugin`] for q_term.
 use bevy::ui::ui_layout_system;
 
 use crate::prelude::*;

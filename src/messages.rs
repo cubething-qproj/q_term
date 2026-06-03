@@ -1,3 +1,5 @@
+//! Buffered message handling.
+
 use bevy::platform::collections::HashMap;
 
 use crate::prelude::*;

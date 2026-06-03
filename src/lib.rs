@@ -1,3 +1,20 @@
+//! A terminal emulator for Bevy.
+//!
+//! Contains a terminal emulator, process simulation, and a basic shell.
+//!
+//! ## Features
+//! - Bevy-ui based terminal rendering
+//! - Rich ANSI parsing
+//! - Process management
+//! - A minimal shell interface
+//! - Shell job management
+//!
+//! ## Non-features
+//! - Multiplexing
+//! - Pipes and redirection
+//! - Filesystem I/O
+//! - Raw mode - TUIs are not yet supported
+
 mod ansi;
 mod data;
 mod messages;

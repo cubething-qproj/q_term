@@ -44,90 +44,29 @@ pub struct TermInputMsg {
     pub input: TermInput,
 }
 
-/// Trait interface for signals.
-pub trait Signal {
-    fn kind(&self) -> SignalKind;
-}
-/// Signals which can be caught / trapped.
-/// Most are catchable. SIGKILL is the most notable exception.
-pub trait CatchableSignal: Signal {}
-
-/// Produced by: (^C), kill builtin.
-/// Polite request to stop. Can be caught.
-pub struct SIGINT;
-impl Signal for SIGINT {
-    fn kind(&self) -> SignalKind {
-        SignalKind::Int
-    }
-}
-impl CatchableSignal for SIGINT {}
-
-/// Produced by: (^\), kill builtin.
-/// Polite request to stop. Can be caught. Produces a core dump (in our case, stack trace).
-pub struct SIGQUIT;
-impl Signal for SIGQUIT {
-    fn kind(&self) -> SignalKind {
-        SignalKind::Quit
-    }
-}
-impl CatchableSignal for SIGQUIT {}
-
-/// Produced by: (^Z), kill builtin.
-/// Signifies that a job is being placed in the background.
-pub struct SIGTSTP;
-impl Signal for SIGTSTP {
-    fn kind(&self) -> SignalKind {
-        SignalKind::Tstp
-    }
-}
-impl CatchableSignal for SIGTSTP {}
-
-/// Produced by: kill builtin.
-/// Polite request from another program to stop. Can be caught.
-pub struct SIGTERM;
-impl Signal for SIGTERM {
-    fn kind(&self) -> SignalKind {
-        SignalKind::Term
-    }
-}
-impl CatchableSignal for SIGTERM {}
-
-/// Produced by: kill builtin.
-/// Immediate kill for the process. The kernel (q_term) despawns the
-/// [Process] immediately. Cannot be caught.
-pub struct SIGKILL;
-impl Signal for SIGKILL {
-    fn kind(&self) -> SignalKind {
-        SignalKind::Int
-    }
-}
-
-/// Produced by: pty close, kill builtin.
-/// Signifies that any listeners have 'hung up' and are no longer available.
-/// Typically used as a reload mechanism or to exit a repl.
-pub struct SIGHUP;
-impl Signal for SIGHUP {
-    fn kind(&self) -> SignalKind {
-        SignalKind::Hup
-    }
-}
-impl CatchableSignal for SIGHUP {}
-
 /// Process signal messages. Interpreted by [`Job`] entities.
 #[derive(Reflect, Clone, Copy, Debug, PartialEq, Eq, Hash)]
 #[non_exhaustive]
-pub enum SignalKind {
-    /// [SIGINT]
+pub enum Sig {
+    /// Produced by: (^C), kill builtin.
+    /// Polite request to stop. Can be caught.
     Int,
-    /// [SIGQUIT]
+    /// Produced by: (^\), kill builtin.
+    /// Polite request to stop. Can be caught. Produces a core dump (in our case, stack trace).
     Quit,
-    /// [SIGTSTP]
+    /// Produced by: (^Z), kill builtin.
+    /// Signifies that a job is being placed in the background.
     Tstp,
-    /// [SIGTERM]
+    /// Produced by: kill builtin.
+    /// Polite request from another program to stop. Can be caught.
     Term,
-    /// [SIGKILL]
+    /// Produced by: kill builtin.
+    /// Immediate kill for the process. The kernel (q_term) despawns the
+    /// [Process] immediately. Cannot be caught.
     Kill,
-    /// [SIGHUP]
+    /// Produced by: pty close, kill builtin.
+    /// Signifies that any listeners have 'hung up' and are no longer available.
+    /// Typically used as a reload mechanism or to exit a repl.
     Hup,
     /// [SIGSTOP]
     Stop,
@@ -149,8 +88,7 @@ pub struct SignalMsg {
     /// Message sink - the targeted job
     pub target: Entity,
     /// Signal kind
-    // TODO: SignalKind or impl Signal?
-    pub signal: SignalKind,
+    pub signal: Sig,
 }
 
 // TODO: This API needs to be completely re-thought.
@@ -184,7 +122,7 @@ impl TermStdIn {
 /// ANSI parser. Parameterised by output channel (`1` = stdout,
 /// `2` = stderr, matching POSIX fd numbers).
 ///
-/// Use the [`StdOut`] and [`StdErr`] aliases at call
+/// Use the [`TermStdOut`] and [`TermStdErr`] aliases at call
 /// sites. The generic exists so a single impl serves both channels
 /// while keeping them as distinct Bevy message types (separate
 /// [`Message`] resources, separate [`MessageReader`]s).
@@ -236,12 +174,12 @@ impl<const CHANNEL: u8> ProgOutputChannel<CHANNEL> {
     }
 }
 
-/// Pending [`StdOut`] writes queued on a term whose
+/// Pending [`TermStdOut`] writes queued on a term whose
 /// [`TermInfo`] could not be resolved when the message was
 /// processed.
 ///
 /// Producers attach this component instead of dropping the
-/// message; the `drain_pending` system re-emits a [`StdOut`]
+/// message; the `drain_pending` system re-emits a [`TermStdOut`]
 /// once the term's prerequisites resolve. Multiple queued
 /// writes against the same term accumulate in `writes` to
 /// preserve write order.
@@ -255,7 +193,7 @@ impl<const CHANNEL: u8> ProgOutputChannel<CHANNEL> {
 #[derive(Component, Debug, Clone, Default, Reflect)]
 pub struct PendingTermInput {
     /// Spans queued for the term. Re-emitted as the `writes`
-    /// payload of a [`StdOut`] when drained.
+    /// payload of a [`TermStdOut`] when drained.
     pub writes: Vec<TermWrite>,
 }
 impl PendingTermInput {

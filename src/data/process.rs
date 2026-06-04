@@ -29,14 +29,6 @@ fn doctest_process() {
         fn schedule_label() -> impl ScheduleLabel {
             MySchedule
         }
-        fn catch_signal(mut commands: Commands, this: Entity, signal: impl CatchableSignal) {
-            match signal.kind() {
-                SignalKind::Int => {
-                    commands.stdout_from(this, "Can't kill me!");
-                }
-                _ => {}
-            }
-        }
     }
 
     let term = app.world_mut().spawn(Terminal).id();
@@ -73,18 +65,6 @@ pub trait Process: Component + Default + Reflect {
     /// Defaults to [`Update`]
     fn runs_on() -> impl ScheduleLabel {
         Update
-    }
-
-    /// Signal catching behavior.
-    /// Defaults: [SIGINT], [SIGQUIT], [SIGTERM], [SIGHUP] all despawn the entity.
-    fn catch_signal(mut commands: Commands, this: Entity, signal: impl CatchableSignal) {
-        use SignalKind::*;
-        match signal.kind() {
-            Int | Quit | Term | Hup => {
-                commands.entity(this).despawn();
-            }
-            _ => {}
-        }
     }
 }
 

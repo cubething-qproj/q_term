@@ -32,7 +32,7 @@ fn process_chain_emits_buffer_mutated_in_order() {
         commands
             .entity(term_id)
             .insert(VtSize { cols: 80, rows: 24 });
-        commands.write_message(TermStdOut::write(term_id, "x"));
+        commands.write_message(StdOut::write(term_id, "x"));
     });
 
     // Pin the reader strictly between `process_input` and the rest of the

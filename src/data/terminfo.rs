@@ -46,26 +46,26 @@ impl<'w, 's> TermInfoItem<'w, 's> {
 
     /// Write text into this terminal's buffer. Supports ANSI.
     pub fn write(&self, commands: &mut Commands, value: impl ToString) {
-        commands.write_message(TermStdOut::write(self.id, value));
+        commands.write_message(StdOut::write(self.id, value));
     }
     /// Write rich text spans into this terminal's buffer.
     pub fn write_spans(&self, commands: &mut Commands, spans: Vec<TermWrite>) {
-        commands.write_message(TermStdOut::write_spans(self.id, spans));
+        commands.write_message(StdOut::write_spans(self.id, spans));
     }
 
     /// Write text into this terminal's buffer via a [`MessageWriter`].
     /// Supports ANSI. Use this in hot-path systems; for lifecycle
     /// hooks, observers, and external callers without a
     /// [`MessageWriter`] system param, use [`Self::write`].
-    pub fn write_via(&self, writer: &mut MessageWriter<TermStdOut>, value: impl ToString) {
-        writer.write(TermStdOut::write(self.id, value));
+    pub fn write_via(&self, writer: &mut MessageWriter<StdOut>, value: impl ToString) {
+        writer.write(StdOut::write(self.id, value));
     }
 
     /// Write rich text spans into this terminal's buffer via a
     /// [`MessageWriter`]. Use this in hot-path systems; for lifecycle
     /// hooks, observers, and external callers without a
     /// [`MessageWriter`] system param, use [`Self::write_spans`].
-    pub fn write_spans_via(&self, writer: &mut MessageWriter<TermStdOut>, spans: Vec<TermWrite>) {
-        writer.write(TermStdOut::write_spans(self.id, spans));
+    pub fn write_spans_via(&self, writer: &mut MessageWriter<StdOut>, spans: Vec<TermWrite>) {
+        writer.write(StdOut::write_spans(self.id, spans));
     }
 }

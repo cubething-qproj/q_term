@@ -58,26 +58,26 @@ fn vt_linetarget_entries_resolve_through_row_target_query() {
             active.0 = Some(term_id);
 
             for i in 0..20 {
-                commands.write_message(TermStdOut::writeln(term_id, format!("{i}")));
+                commands.write_message(StdOut::writeln(term_id, format!("{i}")));
             }
-            commands.write_message(TermStdOut::write(
+            commands.write_message(StdOut::write(
                 term_id,
                 "hello\nhere are multiple lines\n",
             ));
-            commands.write_message(TermStdOut::write(
+            commands.write_message(StdOut::write(
                 term_id,
                 "\x1b[31mthis is red text \x1b[47mwith a white background!\n",
             ));
-            commands.write_message(TermStdOut::write(term_id, "still red and white...\n"));
-            commands.write_message(TermStdOut::write(term_id, "\x1b[0mbut no longer :)\n"));
-            commands.write_message(TermStdOut::write_spans(
+            commands.write_message(StdOut::write(term_id, "still red and white...\n"));
+            commands.write_message(StdOut::write(term_id, "\x1b[0mbut no longer :)\n"));
+            commands.write_message(StdOut::write_spans(
                 term_id,
                 vec![
                     TermWrite::new("you can do multiple spans too, "),
                     TermWrite::new("with style\n"),
                 ],
             ));
-            commands.write_message(TermStdOut::writeln(term_id, LONG_LINE));
+            commands.write_message(StdOut::writeln(term_id, LONG_LINE));
         },
     );
 

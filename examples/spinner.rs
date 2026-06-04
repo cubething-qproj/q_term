@@ -75,7 +75,7 @@ fn tick(time: Res<Time>, mut s: ResMut<Spinner>, mut commands: Commands) {
         // `\r` returns to col 0; `\x1b[2K` wipes whatever was on the
         // previous frame so shorter labels don't leave a tail behind.
         debug!("update frame");
-        commands.write_message(TermStdOut::write(
+        commands.write_message(StdOut::write(
             s.term_id,
             format!("\r\x1b[2K{} {}", FRAMES[s.frame], LABELS[s.label]),
         ));

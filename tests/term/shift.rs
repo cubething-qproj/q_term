@@ -27,7 +27,7 @@ fn shift_test(
     app.add_systems(Startup, move |mut commands: Commands| {
         let term_id = commands.spawn(Terminal).id();
         commands.entity(term_id).insert(VtSize { cols, rows });
-        commands.write_message(TermStdOut::write(term_id, input));
+        commands.write_message(StdOut::write(term_id, input));
     });
     app.add_step(
         0,
@@ -68,7 +68,10 @@ fn ech_blanks_n_cells_no_shift() {
 fn ech_default_count_is_one() {
     shift_test(10, 3, "ABCDEFG\x1b[1;3H\x1b[X", |_, lines, commands| {
         let s = lines[0].1.as_string();
-        r!(commands.assert(s == "AB DEFG", format!("ECH default expected 'AB DEFG', got {s:?}")))
+        r!(commands.assert(
+            s == "AB DEFG",
+            format!("ECH default expected 'AB DEFG', got {s:?}")
+        ))
     });
 }
 
@@ -77,7 +80,10 @@ fn ech_default_count_is_one() {
 fn ech_clamps_past_row_end() {
     shift_test(5, 3, "ABCDE\x1b[1;3H\x1b[99X", |_, lines, commands| {
         let s = lines[0].1.as_string();
-        r!(commands.assert(s == "AB   ", format!("ECH clamp expected 'AB   ', got {s:?}")))
+        r!(commands.assert(
+            s == "AB   ",
+            format!("ECH clamp expected 'AB   ', got {s:?}")
+        ))
     });
 }
 
@@ -109,7 +115,10 @@ fn ech_uses_current_bg_color() {
                 && cells[2..5]
                     .iter()
                     .all(|c| c.value == ' ' && c.style.background == red);
-            r!(commands.assert(ok, format!("ECH expected 3 red-bg spaces at [2..5], got {cells:?}")))
+            r!(commands.assert(
+                ok,
+                format!("ECH expected 3 red-bg spaces at [2..5], got {cells:?}")
+            ))
         },
     );
 }
@@ -134,7 +143,10 @@ fn ich_shifts_right_drops_tail() {
 fn ich_default_count_is_one() {
     shift_test(7, 3, "ABCDEFG\x1b[1;3H\x1b[@", |_, lines, commands| {
         let s = lines[0].1.as_string();
-        r!(commands.assert(s == "AB CDEF", format!("ICH default expected 'AB CDEF', got {s:?}")))
+        r!(commands.assert(
+            s == "AB CDEF",
+            format!("ICH default expected 'AB CDEF', got {s:?}")
+        ))
     });
 }
 
@@ -143,7 +155,10 @@ fn ich_default_count_is_one() {
 fn ich_count_past_row_blanks_all() {
     shift_test(7, 3, "ABCDEFG\x1b[1;3H\x1b[99@", |_, lines, commands| {
         let s = lines[0].1.as_string();
-        r!(commands.assert(s == "AB     ", format!("ICH clamp expected 'AB     ', got {s:?}")))
+        r!(commands.assert(
+            s == "AB     ",
+            format!("ICH clamp expected 'AB     ', got {s:?}")
+        ))
     });
 }
 
@@ -175,7 +190,10 @@ fn ich_uses_current_bg_color() {
                 && cells[2..4]
                     .iter()
                     .all(|c| c.value == ' ' && c.style.background == red);
-            r!(commands.assert(ok, format!("ICH expected 2 red-bg spaces at [2..4], got {cells:?}")))
+            r!(commands.assert(
+                ok,
+                format!("ICH expected 2 red-bg spaces at [2..4], got {cells:?}")
+            ))
         },
     );
 }
@@ -217,7 +235,10 @@ fn dch_shifts_left_pads_tail() {
 fn dch_default_count_is_one() {
     shift_test(7, 3, "ABCDEFG\x1b[1;3H\x1b[P", |_, lines, commands| {
         let s = lines[0].1.as_string();
-        r!(commands.assert(s == "ABDEFG ", format!("DCH default expected 'ABDEFG ', got {s:?}")))
+        r!(commands.assert(
+            s == "ABDEFG ",
+            format!("DCH default expected 'ABDEFG ', got {s:?}")
+        ))
     });
 }
 
@@ -226,7 +247,10 @@ fn dch_default_count_is_one() {
 fn dch_count_past_row_blanks_all() {
     shift_test(7, 3, "ABCDEFG\x1b[1;3H\x1b[99P", |_, lines, commands| {
         let s = lines[0].1.as_string();
-        r!(commands.assert(s == "AB     ", format!("DCH clamp expected 'AB     ', got {s:?}")))
+        r!(commands.assert(
+            s == "AB     ",
+            format!("DCH clamp expected 'AB     ', got {s:?}")
+        ))
     });
 }
 
@@ -258,7 +282,10 @@ fn dch_uses_current_bg_color() {
                 && cells[5..7]
                     .iter()
                     .all(|c| c.value == ' ' && c.style.background == red);
-            r!(commands.assert(ok, format!("DCH expected 2 red-bg spaces at [5..7], got {cells:?}")))
+            r!(commands.assert(
+                ok,
+                format!("DCH expected 2 red-bg spaces at [5..7], got {cells:?}")
+            ))
         },
     );
 }
@@ -312,8 +339,10 @@ fn ech_ich_dch_no_op_on_empty_grid() {
     let mut app = get_test_app();
     app.add_systems(Startup, move |mut commands: Commands| {
         let term_id = commands.spawn(Terminal).id();
-        commands.entity(term_id).insert(VtSize { cols: 10, rows: 3 });
-        commands.write_message(TermStdOut::write(term_id, "\x1b[3X\x1b[2@\x1b[2P"));
+        commands
+            .entity(term_id)
+            .insert(VtSize { cols: 10, rows: 3 });
+        commands.write_message(StdOut::write(term_id, "\x1b[3X\x1b[2@\x1b[2P"));
     });
     app.add_step(
         0,
@@ -324,9 +353,7 @@ fn ech_ich_dch_no_op_on_empty_grid() {
             let lines: Vec<_> = terminfo.lines(&q_lines).collect();
             // No content was ever written, so no VtLine should exist,
             // and the cursor should still be at the origin.
-            let ok = lines.is_empty()
-                && terminfo.cursor.row == 0
-                && terminfo.cursor.col == 0;
+            let ok = lines.is_empty() && terminfo.cursor.row == 0 && terminfo.cursor.col == 0;
             if ok {
                 commands.write_message(AppExit::Success);
             } else {

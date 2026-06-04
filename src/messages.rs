@@ -19,7 +19,7 @@ use crate::prelude::*;
 /// [`MessageWriter`] system params; entity cleanup uses [`Commands`].
 pub fn drain_pending(
     mut commands: Commands,
-    mut input: MessageWriter<TermStdOut>,
+    mut input: MessageWriter<StdOut>,
     mut scroll: MessageWriter<TermScrollMsg>,
     q_terminfo: Query<TermInfo>,
     q_pending_input: Query<(Entity, &PendingTermInput)>,
@@ -29,7 +29,7 @@ pub fn drain_pending(
     for (entity, pending) in &q_pending_input {
         if q_terminfo.get(entity).is_ok() {
             commands.entity(entity).remove::<PendingTermInput>();
-            input.write(TermStdOut {
+            input.write(StdOut {
                 term: entity,
                 writes: pending.writes.clone(),
             });
@@ -55,8 +55,8 @@ pub fn drain_pending(
 /// target; `drain_pending` re-emits them once the target resolves.
 /// Emits [`TermRedrawRequestedMsg`] per affected target.
 pub fn process_input(
-    mut stdout: MessageReader<TermStdOut>,
-    mut stderr: MessageReader<TermStdErr>,
+    mut stdout: MessageReader<StdOut>,
+    mut stderr: MessageReader<StdErr>,
     mut commands: Commands,
     mut redraw_requested: MessageWriter<TermRedrawRequestedMsg>,
     mut stdin_writer: MessageWriter<'_, TermStdIn>,

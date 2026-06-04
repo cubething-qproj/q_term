@@ -184,24 +184,24 @@ impl TermStdIn {
 /// ANSI parser. Parameterised by output channel (`1` = stdout,
 /// `2` = stderr, matching POSIX fd numbers).
 ///
-/// Use the [`TermStdOut`] and [`TermStdErr`] aliases at call
+/// Use the [`StdOut`] and [`StdErr`] aliases at call
 /// sites. The generic exists so a single impl serves both channels
 /// while keeping them as distinct Bevy message types (separate
 /// [`Message`] resources, separate [`MessageReader`]s).
 #[derive(Message, Debug, Clone, Reflect)]
-pub struct TermOutputChannel<const CHANNEL: u8> {
+pub struct ProgOutputChannel<const CHANNEL: u8> {
     /// Target terminal entity.
     pub term: Entity,
     /// Spans to write into the buffer.
     pub writes: Vec<TermWrite>,
 }
 
-/// Stdout writes to the [`Terminal`]. (POSIX fd 1).
-pub type TermStdOut = TermOutputChannel<1>;
+/// Stdout writes. (POSIX fd 1).
+pub type StdOut = ProgOutputChannel<1>;
 /// Stderr writes to the [`Terminal`]. (POSIX fd 2).
-pub type TermStdErr = TermOutputChannel<2>;
+pub type StdErr = ProgOutputChannel<2>;
 
-impl<const CHANNEL: u8> TermOutputChannel<CHANNEL> {
+impl<const CHANNEL: u8> ProgOutputChannel<CHANNEL> {
     /// Construct a [`TermOutputChannel`] with arbitrary write spans.
     pub fn new(term: Entity, writes: Vec<TermWrite>) -> Self {
         Self { term, writes }
@@ -236,12 +236,12 @@ impl<const CHANNEL: u8> TermOutputChannel<CHANNEL> {
     }
 }
 
-/// Pending [`TermStdOut`] writes queued on a term whose
+/// Pending [`StdOut`] writes queued on a term whose
 /// [`TermInfo`] could not be resolved when the message was
 /// processed.
 ///
 /// Producers attach this component instead of dropping the
-/// message; the `drain_pending` system re-emits a [`TermStdOut`]
+/// message; the `drain_pending` system re-emits a [`StdOut`]
 /// once the term's prerequisites resolve. Multiple queued
 /// writes against the same term accumulate in `writes` to
 /// preserve write order.
@@ -255,7 +255,7 @@ impl<const CHANNEL: u8> TermOutputChannel<CHANNEL> {
 #[derive(Component, Debug, Clone, Default, Reflect)]
 pub struct PendingTermInput {
     /// Spans queued for the term. Re-emitted as the `writes`
-    /// payload of a [`TermStdOut`] when drained.
+    /// payload of a [`StdOut`] when drained.
     pub writes: Vec<TermWrite>,
 }
 impl PendingTermInput {

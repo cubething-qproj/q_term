@@ -13,7 +13,7 @@ fn ansi_test(
     app.add_systems(Startup, move |mut commands: Commands| {
         let term_id = commands.spawn(Terminal).id();
         commands.entity(term_id).insert(VtSize { cols, rows });
-        commands.write_message(TermStdOut::write(term_id, input));
+        commands.write_message(StdOut::write(term_id, input));
     });
     app.add_step(
         0,
@@ -158,7 +158,7 @@ fn palette_background() {
         commands
             .entity(term_id)
             .insert(VtSize { cols: 80, rows: 24 });
-        commands.write_message(TermStdOut::write(term_id, &input));
+        commands.write_message(StdOut::write(term_id, &input));
     });
 
     app.add_step(
@@ -430,7 +430,7 @@ fn truecolor() {
         commands
             .entity(term_id)
             .insert(VtSize { cols: 80, rows: 24 });
-        commands.write_message(TermStdOut::write(
+        commands.write_message(StdOut::write(
             term_id,
             "\x1b[38;2;255;0;128;48;2;0;64;255mHi\x1b[0m!",
         ));
@@ -520,7 +520,7 @@ fn palette_foreground() {
         commands
             .entity(term_id)
             .insert(VtSize { cols: 80, rows: 24 });
-        commands.write_message(TermStdOut::write(term_id, &input));
+        commands.write_message(StdOut::write(term_id, &input));
     });
 
     app.add_step(
@@ -607,7 +607,7 @@ fn cursor_write_arbitrary_positions() {
         commands
             .entity(term_id)
             .insert(VtSize { cols: 40, rows: 24 });
-        commands.write_message(TermStdOut::write(term_id, input));
+        commands.write_message(StdOut::write(term_id, input));
     });
 
     app.add_step(
@@ -681,7 +681,7 @@ fn ansi_test_with_tabstop(
             .entity(term_id)
             .insert(VtSize { cols, rows })
             .insert(VtTabStop(tabstop));
-        commands.write_message(TermStdOut::write(term_id, input));
+        commands.write_message(StdOut::write(term_id, input));
     });
     app.add_step(
         0,
@@ -711,11 +711,17 @@ fn backspace_moves_cursor_left() {
         let (_, line) = &lines[0];
         r!(commands.assert(
             line.as_string() == "AB",
-            format!("BS should not erase; line should be 'AB', got '{}'", line.as_string()),
+            format!(
+                "BS should not erase; line should be 'AB', got '{}'",
+                line.as_string()
+            ),
         ));
         r!(commands.assert(
             terminfo.cursor.col == 1,
-            format!("BS should move cursor to col 1, got {}", terminfo.cursor.col),
+            format!(
+                "BS should move cursor to col 1, got {}",
+                terminfo.cursor.col
+            ),
         ))
     });
 }
@@ -732,7 +738,10 @@ fn backspace_then_print_overwrites() {
         ));
         r!(commands.assert(
             terminfo.cursor.col == 2,
-            format!("cursor col after overwrite should be 2, got {}", terminfo.cursor.col),
+            format!(
+                "cursor col after overwrite should be 2, got {}",
+                terminfo.cursor.col
+            ),
         ))
     });
 }
@@ -754,7 +763,10 @@ fn backspace_at_col_zero_clamps() {
         ));
         r!(commands.assert(
             terminfo.cursor.row == 0,
-            format!("BS at col 0 should stay on row 0, got {}", terminfo.cursor.row),
+            format!(
+                "BS at col 0 should stay on row 0, got {}",
+                terminfo.cursor.row
+            ),
         ))
     });
 }
@@ -767,7 +779,10 @@ fn backspace_clears_pending_wrap() {
     ansi_test(5, 24, "ABCDE\x08X", |terminfo, lines, commands| {
         r!(commands.assert(
             lines.len() == 1,
-            format!("BS should cancel pending wrap; expected 1 line, got {}", lines.len()),
+            format!(
+                "BS should cancel pending wrap; expected 1 line, got {}",
+                lines.len()
+            ),
         ));
         let (_, line) = &lines[0];
         r!(commands.assert(
@@ -789,11 +804,17 @@ fn tab_from_col_zero() {
         let cells = line.cells();
         r!(commands.assert(
             cells.get(8).map(|c| c.value) == Some('A'),
-            format!("HT should land 'A' at col 8, got line '{}'", line.as_string()),
+            format!(
+                "HT should land 'A' at col 8, got line '{}'",
+                line.as_string()
+            ),
         ));
         r!(commands.assert(
             terminfo.cursor.col == 9,
-            format!("cursor col after 'A' should be 9, got {}", terminfo.cursor.col),
+            format!(
+                "cursor col after 'A' should be 9, got {}",
+                terminfo.cursor.col
+            ),
         ))
     });
 }
@@ -806,11 +827,17 @@ fn tab_advances_to_next_stop() {
         let cells = line.cells();
         r!(commands.assert(
             cells.get(8).map(|c| c.value) == Some('X'),
-            format!("HT should land 'X' at col 8, got line '{}'", line.as_string()),
+            format!(
+                "HT should land 'X' at col 8, got line '{}'",
+                line.as_string()
+            ),
         ));
         r!(commands.assert(
             terminfo.cursor.col == 9,
-            format!("cursor col after 'X' should be 9, got {}", terminfo.cursor.col),
+            format!(
+                "cursor col after 'X' should be 9, got {}",
+                terminfo.cursor.col
+            ),
         ))
     });
 }
@@ -823,11 +850,17 @@ fn tab_already_on_stop_advances() {
         let cells = line.cells();
         r!(commands.assert(
             cells.get(16).map(|c| c.value) == Some('X'),
-            format!("HT on stop should land 'X' at col 16, got line '{}'", line.as_string()),
+            format!(
+                "HT on stop should land 'X' at col 16, got line '{}'",
+                line.as_string()
+            ),
         ));
         r!(commands.assert(
             terminfo.cursor.col == 17,
-            format!("cursor col after 'X' should be 17, got {}", terminfo.cursor.col),
+            format!(
+                "cursor col after 'X' should be 17, got {}",
+                terminfo.cursor.col
+            ),
         ))
     });
 }
@@ -842,7 +875,10 @@ fn tab_clamps_at_last_column() {
         let cells = line.cells();
         r!(commands.assert(
             cells.get(9).map(|c| c.value) == Some('X'),
-            format!("HT clamp: 'X' should be at col 9, got line '{}'", line.as_string()),
+            format!(
+                "HT clamp: 'X' should be at col 9, got line '{}'",
+                line.as_string()
+            ),
         ));
         r!(commands.assert(
             terminfo.cursor.row == 0,
@@ -859,11 +895,17 @@ fn tab_respects_configurable_width() {
         let cells = line.cells();
         r!(commands.assert(
             cells.get(4).map(|c| c.value) == Some('B'),
-            format!("with tabstop=4, 'B' should be at col 4, got line '{}'", line.as_string()),
+            format!(
+                "with tabstop=4, 'B' should be at col 4, got line '{}'",
+                line.as_string()
+            ),
         ));
         r!(commands.assert(
             terminfo.cursor.col == 5,
-            format!("cursor col after 'B' should be 5, got {}", terminfo.cursor.col),
+            format!(
+                "cursor col after 'B' should be 5, got {}",
+                terminfo.cursor.col
+            ),
         ))
     });
 }

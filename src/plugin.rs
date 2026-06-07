@@ -73,3 +73,11 @@ impl Plugin for TerminalPlugin {
         );
     }
 }
+
+#[derive(Debug)]
+pub struct ProcessPlugin;
+impl Plugin for ProcessPlugin {
+    fn build(&self, app: &mut App) {
+        todo!()
+    }
+}

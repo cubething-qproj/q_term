@@ -57,7 +57,7 @@ fn example() {
 /// A [`Resource`] which tracks registered a [`Program`] through its
 /// [`ProgramLabel`].
 #[derive(Resource, Default, Deref, DerefMut)]
-pub struct Programs(HashMap<InternedProgramLabel, ProgramData>);
+pub struct Programs(pub(crate) HashMap<InternedProgramLabel, ProgramData>);
 impl Programs {
     pub fn get(&self, label: impl ProgramLabel) -> Option<&ProgramData> {
         self.0.get(&label.intern())
@@ -217,36 +217,4 @@ impl ProgramAppExt for App {
         let data = res.entry(prog.clone()).or_default();
         data.insert(schedule.intern(), id);
     }
-}
-
-pub fn run_programs<S: ScheduleLabel + Default>(
-    mut commands: Commands,
-    q_procs: Query<&Process>,
-    progs: Res<Programs>,
-) {
-    for proc in q_procs.iter() {
-        let pdata = c!(progs.0.get(&proc.prog));
-        let sysid = c!(pdata.get(&S::default().intern()));
-        commands.run_system_with(*sysid, proc.clone());
-    }
-}
-
-macro_rules! impl_run_progs {
-    ($app:ident, $($sched:ident),+) => {
-        $(
-            $app.add_systems($sched, run_programs::<$sched>);
-        )+
-    };
-}
-
-pub fn plugin(app: &mut App) {
-    impl_run_progs!(
-        app,
-        PreUpdate,
-        Update,
-        PostUpdate,
-        FixedPreUpdate,
-        FixedUpdate,
-        FixedPostUpdate
-    );
 }

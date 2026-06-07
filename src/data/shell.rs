@@ -28,39 +28,27 @@ impl Shell {
 
 #[derive(Message, Debug)]
 pub struct ShellSpawnMsg {
-    prog: InternedProgramLabel,
-    shell: Entity,
-    argv: Vec<String>,
-    environ: HashMap<String, String>,
+    pub prog: InternedProgramLabel,
+    pub shell: Entity,
+    pub argv: Vec<String>,
+    pub environ: HashMap<String, String>,
 }
-
-fn spawn_process(
-    mut commands: Commands,
-    q_terminfo: Query<TermInfo>,
-    q_shell: Query<(Entity, &Shell)>,
-    mut reader: MessageReader<ShellSpawnMsg>,
-) {
-    for msg in reader.read() {
-        let (shell_id, shell) = r!(q_shell.get(msg.shell));
-        let term = r!(q_terminfo.get(shell.term));
-        let term_id = term.id;
-        let mut entt = commands.spawn_empty();
-        let proc_id = entt.id();
-        entt.insert((
-            Process {
-                entity: proc_id,
-                prog: msg.prog,
-                argv: msg.argv.clone(),
-                environ: msg.environ.clone(),
-                fd0: term_id,
-                fd1: term_id,
-                fd2: term_id,
-                signal_overrides: HashMap::new(), // TODO: How??
-            },
-            ShellJob(shell_id),
-            ForegroundProcess(shell_id),
-        ))
-        .id();
+impl ShellSpawnMsg {
+    pub fn new(prog: impl ProgramLabel, shell: Entity) -> Self {
+        Self {
+            prog: prog.intern(),
+            shell,
+            argv: Vec::new(),
+            environ: HashMap::new(),
+        }
+    }
+    pub fn with_args(prog: impl ProgramLabel, shell: Entity, argv: Vec<String>) -> Self {
+        Self {
+            prog: prog.intern(),
+            shell,
+            argv,
+            environ: HashMap::new(),
+        }
     }
 }
 

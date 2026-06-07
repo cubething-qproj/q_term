@@ -1,4 +1,4 @@
-//! Scheduled systems for q_term.
+//! Systems related to the [`Terminal`]
 
 use bevy::{
     input::mouse::MouseScrollUnit,

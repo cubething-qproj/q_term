@@ -1,3 +1,5 @@
+//! ANSI parsing.
+
 #![allow(clippy::upper_case_acronyms)]
 
 use crate::prelude::*;
@@ -172,10 +174,12 @@ pub struct Grid<'a> {
     modes: VtModes,
     tab_stop: usize,
     term_id: Entity,
+    fg_job: Entity,
 }
 impl<'a> Grid<'a> {
     pub fn new<'w, 's>(
         terminfo: &TermInfoItem<'w, 's>,
+        fg_job: Entity,
         q_lines: &'a Query<(Entity, &VtLine, &VtRowTarget)>,
         q_rows: &'a Query<(Entity, &VtRow)>,
     ) -> Self {
@@ -208,12 +212,8 @@ impl<'a> Grid<'a> {
             modes: *terminfo.modes,
             tab_stop: terminfo.tab_stop.0,
             term_id: terminfo.id,
+            fg_job,
         }
-    }
-
-    /// Snapshot the grid's current cursor.
-    pub(crate) fn cursor(&self) -> VtCursor {
-        self.cursor
     }
 
     fn visible_lines_as_string(&self, to_write: Option<char>) -> String {
@@ -603,9 +603,11 @@ impl<'a> Grid<'a> {
             .remove_related::<VtViewportRow>(&self.viewport_entities);
 
         // cache viewport info
-        commands
-            .entity(self.term_id)
-            .insert((self.cursor, VtScrollPos(self.scroll_pos), self.modes));
+        commands.entity(self.term_id).insert((
+            self.cursor,
+            VtScrollPos(self.scroll_pos),
+            self.modes,
+        ));
 
         // update grid entities
         let visible_rows = self.visible_rows();
@@ -750,18 +752,20 @@ impl<'a, 'g, 'w> anstyle_parse::Perform for AnsiPerformer<'a, 'g, 'w> {
         _ignore: bool,
         _action: u8,
     ) {
-        info!(?_action, "hook");
+        trace!(?_action, "hook");
     }
 
     fn put(&mut self, _byte: u8) {
-        info!(?_byte, "put");
+        trace!(?_byte, "put");
     }
 
     fn unhook(&mut self) {
-        info!("(unhook)")
+        trace!("unhook")
     }
 
-    fn osc_dispatch(&mut self, _params: &[&[u8]], _bell_terminated: bool) {}
+    fn osc_dispatch(&mut self, _params: &[&[u8]], _bell_terminated: bool) {
+        trace!("osc_disptach")
+    }
 
     fn csi_dispatch(
         &mut self,
@@ -770,7 +774,7 @@ impl<'a, 'g, 'w> anstyle_parse::Perform for AnsiPerformer<'a, 'g, 'w> {
         _ignore: bool,
         action: u8,
     ) {
-        info!(?action, "csi_dispatch");
+        trace!("csi_dispatch");
         let mut param_iter = params.iter();
         match action {
             action if action == CsiAction::CUU as u8 => {
@@ -907,13 +911,14 @@ impl<'a, 'g, 'w> anstyle_parse::Perform for AnsiPerformer<'a, 'g, 'w> {
                     5 => {
                         // "Ready, no malfunctions detected."
                         self.writer
-                            .write(TermStdIn::new(self.target, b"\x1b[0n".to_vec()));
+                            .write(TermStdIn::new(self.target, self.grid.fg_job, "\x1b[0n"));
                     }
                     6 => {
                         let row = self.grid.cursor.row + 1;
                         let col = self.grid.cursor.col + 1;
-                        let reply = format!("\x1b[{row};{col}R").into_bytes();
-                        self.writer.write(TermStdIn::new(self.target, reply));
+                        let reply = format!("\x1b[{row};{col}R");
+                        self.writer
+                            .write(TermStdIn::new(self.target, self.grid.fg_job, reply));
                     }
                     _ => {}
                 }
@@ -932,8 +937,11 @@ impl<'a, 'g, 'w> anstyle_parse::Perform for AnsiPerformer<'a, 'g, 'w> {
                 if mode == 0 {
                     // VT220 base + ANSI color -- honest claim for what
                     // the parser currently implements.
-                    self.writer
-                        .write(TermStdIn::new(self.target, b"\x1b[?62;22c".to_vec()));
+                    self.writer.write(TermStdIn::new(
+                        self.target,
+                        self.grid.fg_job,
+                        "\x1b[?62;22c",
+                    ));
                 }
             }
             action if action == CsiAction::SGR as u8 => {

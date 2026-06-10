@@ -57,7 +57,7 @@ fn setup(mut commands: Commands) {
         VtUi::new(term_id),
     ));
     // Initial prompt.
-    commands.write_message(TermStdOut::write(term_id, PROMPT));
+    commands.write_message(StdOut::write(term_id, PROMPT));
     commands.insert_resource(Input {
         term_id,
         buffer: String::new(),
@@ -114,12 +114,12 @@ fn on_key(
         // empty prompt below it. `\r\x1b[2K` is redundant here
         // because the newline starts us on virgin space, but keeping
         // it makes the redraw idiom uniform for the live-edit path.
-        commands.write_message(TermStdOut::write(
+        commands.write_message(StdOut::write(
             input.term_id,
             format!("\r\x1b[2K{PROMPT}{line}\n{PROMPT}"),
         ));
     } else if dirty {
-        commands.write_message(TermStdOut::write(
+        commands.write_message(StdOut::write(
             input.term_id,
             format!("\r\x1b[2K{PROMPT}{}", input.buffer),
         ));

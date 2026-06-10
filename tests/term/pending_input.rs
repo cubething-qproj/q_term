@@ -21,7 +21,7 @@ fn pending_input_attach_and_drain() {
     app.add_systems(Startup, |mut commands: Commands| {
         let target = commands.spawn_empty().id();
         commands.insert_resource(Target(target));
-        commands.write_message(TermStdOut::write(target, "Hello, world!"));
+        commands.write_message(StdOut::write(target, "Hello, world!"));
     });
 
     // Step 0: wait for `process_input` to attach `PendingTermInput`,

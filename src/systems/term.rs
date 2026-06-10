@@ -1,3 +1,5 @@
+//! Systems related to the [`Terminal`]
+
 use bevy::{
     input::mouse::MouseScrollUnit,
     text::{LineHeight, TextLayoutInfo},
@@ -38,7 +40,6 @@ pub fn update_char_width(
         // Convert physical -> logical pixels so this matches `LineHeight`
         // and the logical-pixel UI size used in `resize`.
         let width_logical = node.size().x * node.inverse_scale_factor();
-        debug!("update_char_width => {:?}", width_logical);
         commands
             .entity(entity)
             .insert(VtCharWidth::new(cw.target(), width_logical));
@@ -71,8 +72,8 @@ pub fn resize(
             LineHeight::RelativeToFont(rel) => rel * font.font_size,
         };
         let cw_value = cw.value();
-        c!(cw_value > 0.0);
-        c!(line_height > 0.0);
+        cq!(cw_value > 0.0);
+        cq!(line_height > 0.0);
         let cols = (size.x / cw_value).floor() as usize;
         let rows = (size.y / line_height).floor() as usize;
         let target = vt_ui.target();
@@ -331,7 +332,15 @@ pub fn update_cursor_display(
 
 pub fn flash_cursor(
     time: Res<Time>,
-    mut cursor: Query<(&ChildOf, &mut VtStrobeTimer, &VtCursorColor, &mut BackgroundColor), With<VtUiCursor>>,
+    mut cursor: Query<
+        (
+            &ChildOf,
+            &mut VtStrobeTimer,
+            &VtCursorColor,
+            &mut BackgroundColor,
+        ),
+        With<VtUiCursor>,
+    >,
     q_ui: Query<&VtUi>,
     q_modes: Query<&VtModes>,
 ) {

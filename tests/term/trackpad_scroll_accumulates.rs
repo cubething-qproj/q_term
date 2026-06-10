@@ -93,7 +93,7 @@ fn setup_app() -> App {
             rows: TERM_ROWS,
         });
         for i in 0..SEED_LINES {
-            commands.write_message(TermStdOut::writeln(term_id, format!("line {i}")));
+            commands.write_message(StdOut::writeln(term_id, format!("line {i}")));
         }
         commands.insert_resource(Term(term_id));
 

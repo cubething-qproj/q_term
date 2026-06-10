@@ -1,3 +1,4 @@
+//! The primary [`Plugin`] for q_term.
 use bevy::ui::ui_layout_system;
 
 use crate::prelude::*;
@@ -22,26 +23,24 @@ pub enum TerminalSystems {
 
 /// The primary plugin for q_term.
 ///
-/// Routes [`TerminalSystems`] sets across three configurable schedules:
-/// `pre` hosts [`TerminalSystems::Input`], `update` hosts the
-/// [`TerminalSystems::Measure`] → [`TerminalSystems::Process`] chain,
-/// and `post` hosts [`TerminalSystems::RenderPrep`] (after
-/// `ui_layout_system`).
+/// Routes [`TerminalSystems`] sets across three configurable schedules: `pre`
+/// hosts [`TerminalSystems::Input`], `update` hosts the
+/// [`TerminalSystems::Measure`] → [`TerminalSystems::Process`] chain, and
+/// `post` hosts [`TerminalSystems::Render`] (after `ui_layout_system`).
 #[derive(Debug)]
 pub struct TerminalPlugin;
 
 impl Plugin for TerminalPlugin {
     fn build(&self, app: &mut App) {
-        app.add_message::<TermStdOut>();
-        app.add_message::<TermStdErr>();
+        use crate::msgs::term::*;
+        use crate::systems::term::*;
+        app.add_message::<StdOut>();
+        app.add_message::<StdErr>();
         app.add_message::<TermStdIn>();
         app.add_message::<TermScrollMsg>();
         app.add_message::<TermJumpToBottomMsg>();
         app.add_message::<TermReflowMsg>();
-        app.add_message::<TermBufferMutatedMsg>();
-        app.add_message::<TermCursorMovedMsg>();
         app.add_message::<TermRedrawRequestedMsg>();
-        app.add_message::<TermFocusChangedMsg>();
 
         app.init_resource::<PendingTermInputCap>();
         app.init_resource::<VtScrollSensitivity>();
@@ -72,6 +71,35 @@ impl Plugin for TerminalPlugin {
             refresh_ui
                 .after(ui_layout_system)
                 .in_set(TerminalSystems::Render),
+        );
+    }
+}
+
+macro_rules! impl_run_progs {
+    ($app:ident, $($sched:ident),+) => {
+        $(
+            $app.add_systems($sched, run_programs::<$sched>);
+        )+
+    };
+}
+#[derive(Debug)]
+pub struct ProcessPlugin;
+impl Plugin for ProcessPlugin {
+    fn build(&self, app: &mut App) {
+        use crate::systems::prog::*;
+        app.add_message::<SignalMsg>();
+        app.add_message::<ShellSpawnMsg>();
+
+        app.add_systems(Update, spawn_process);
+
+        impl_run_progs!(
+            app,
+            PreUpdate,
+            Update,
+            PostUpdate,
+            FixedPreUpdate,
+            FixedUpdate,
+            FixedPostUpdate
         );
     }
 }

@@ -37,8 +37,10 @@ fn modes_test(
     let mut app = get_test_app();
     app.add_systems(Startup, move |mut commands: Commands| {
         let term_id = commands.spawn(Terminal).id();
-        commands.entity(term_id).insert(VtSize { cols: 20, rows: 4 });
-        commands.write_message(TermStdOut::write(term_id, input));
+        commands
+            .entity(term_id)
+            .insert(VtSize { cols: 20, rows: 4 });
+        commands.write_message(StdOut::write(term_id, input));
     });
     app.add_step(
         0,

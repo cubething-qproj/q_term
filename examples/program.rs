@@ -28,17 +28,19 @@ fn main() {
     app.add_program_system(
         MyProg,
         Update,
-        |proc: In<Process>,
+        |id: In<Entity>,
+         procs: Query<&Process>,
          mut commands: Commands,
          mut timer: Local<Option<Timer>>,
          time: Res<Time>| {
+            let proc = procs.get(*id).unwrap();
             if timer.is_none() {
                 *timer = Some(Timer::from_seconds(1., TimerMode::Repeating));
             }
             let t = timer.as_mut().unwrap();
             t.tick(time.delta());
             if t.just_finished() {
-                let msg = format!("Hello from process {}!\n", proc.entity);
+                let msg = format!("Hello from process {}!\n", *id);
                 info!(msg);
                 proc.write(&mut commands, msg);
             }

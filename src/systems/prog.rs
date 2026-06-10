@@ -5,13 +5,13 @@ use bevy::{ecs::schedule::ScheduleLabel, prelude::*};
 
 pub fn run_programs<S: ScheduleLabel + Default>(
     mut commands: Commands,
-    q_procs: Query<&Process>,
+    q_procs: Query<(Entity, &Process)>,
     progs: Res<Programs>,
 ) {
-    for proc in q_procs.iter() {
+    for (entity, proc) in q_procs.iter() {
         trace!("{:?}: Running {:?}", S::default(), proc.prog.name());
         let pdata = c!(progs.0.get(&proc.prog));
         let sysid = cq!(pdata.get(&S::default().intern()));
-        commands.run_system_with(*sysid, proc.clone());
+        commands.run_system_with(*sysid, entity);
     }
 }

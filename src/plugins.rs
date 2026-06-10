@@ -23,11 +23,10 @@ pub enum TerminalSystems {
 
 /// The primary plugin for q_term.
 ///
-/// Routes [`TerminalSystems`] sets across three configurable schedules:
-/// `pre` hosts [`TerminalSystems::Input`], `update` hosts the
-/// [`TerminalSystems::Measure`] → [`TerminalSystems::Process`] chain,
-/// and `post` hosts [`TerminalSystems::RenderPrep`] (after
-/// `ui_layout_system`).
+/// Routes [`TerminalSystems`] sets across three configurable schedules: `pre`
+/// hosts [`TerminalSystems::Input`], `update` hosts the
+/// [`TerminalSystems::Measure`] → [`TerminalSystems::Process`] chain, and
+/// `post` hosts [`TerminalSystems::Render`] (after `ui_layout_system`).
 #[derive(Debug)]
 pub struct TerminalPlugin;
 

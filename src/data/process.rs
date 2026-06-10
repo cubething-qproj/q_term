@@ -35,7 +35,14 @@ impl Programs {
 
 /// Data associated with a [`Program`]. Specifically, [`SystemId`]s mapped to [`ScheduleLabel`]s.
 /// Note that this currently only accepts **one** system per label.
-pub type ProgramData = HashMap<InternedScheduleLabel, SystemId<In<Process>, ()>>;
+pub type ProgramData = HashMap<InternedScheduleLabel, SystemId<In<Entity>, ()>>;
+
+/// Type alias for a [`System`] associated with a [`Program`].
+/// The input is an [`Entity`] pointer to the live [`Process`].
+pub type ProgramSystem = SystemId<In<Entity>, ()>;
+
+pub trait IntoProgramSystem<M>: IntoSystem<In<Entity>, (), M> + 'static {}
+impl<T, M> IntoProgramSystem<M> for T where T: IntoSystem<In<Entity>, (), M> + 'static {}
 
 define_label!(
     /// A [`Process`] is a potentially long-running [`Schedule`] which is
@@ -56,12 +63,12 @@ define_label!(
     extra_methods_impl: {
         /// Name of the process, used to run it on the command line.
         fn name(&self) -> ProcessName {
-            ProcessName::new("PLACEHOLDER")
+            ProcessName::new("PLACEHOLDER").unwrap()
         }
     }
 );
 
-/// Shorthand for Interned<dyn ProgramLabel>
+/// Shorthand for [`Interned<dyn ProgramLabel>`]
 pub type InternedProgramLabel = Interned<dyn ProgramLabel>;
 
 /// A [`Program`] is a set of instructions which is instantiated by spawning a
@@ -83,7 +90,7 @@ macro_rules! impl_program_label {
     ($t:ty, $name:literal) => {
         impl ProgramLabel for $t {
             fn name(&self) -> ProcessName {
-                ProcessName::new($name)
+                ProcessName::new($name).unwrap()
             }
             fn dyn_clone(&self) -> Box<dyn ProgramLabel> {
                 Box::new(self.clone())
@@ -97,9 +104,6 @@ macro_rules! impl_program_label {
 #[derive(Component, Clone, Debug)]
 #[component(immutable)]
 pub struct Process {
-    /// The currently attached entity ID.
-    /// Equivalent to UNIX pid.
-    pub entity: Entity,
     /// The [`ProgramLabel`] associated with this [`Process`].
     /// Determines what this process _does_.
     pub prog: InternedProgramLabel,
@@ -134,11 +138,12 @@ impl Process {
 #[derive(Debug, Deref)]
 pub struct ProcessName(&'static str);
 impl ProcessName {
-    pub fn new(name: &'static str) -> Self {
+    pub fn new(name: &'static str) -> Result<Self, &'static str> {
         if name.split_whitespace().count() > 1 {
-            panic!("Process name must not contain whitespace.");
+            Err("Process name must not contain whitespace.")
+        } else {
+            Ok(Self(name))
         }
-        Self(name)
     }
     pub fn name(&self) -> &'static str {
         self.0
@@ -152,7 +157,7 @@ pub trait ProgramAppExt {
         &mut self,
         prog: impl ProgramLabel + Clone,
         schedule: impl ScheduleLabel,
-        system: impl IntoSystem<In<Process>, (), M> + 'static,
+        system: impl IntoProgramSystem<M>,
     );
 }
 impl ProgramAppExt for App {
@@ -167,7 +172,7 @@ impl ProgramAppExt for App {
         &mut self,
         prog: impl ProgramLabel + Clone,
         schedule: impl ScheduleLabel,
-        system: impl IntoSystem<In<Process>, (), M> + 'static,
+        system: impl IntoProgramSystem<M>,
     ) {
         self.init_resource::<Programs>();
         let id = self.register_system(system);

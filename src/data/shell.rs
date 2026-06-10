@@ -12,18 +12,10 @@ use bevy::{
 /// struct must be implemented outside this crate.
 #[derive(Component, Reflect, Debug)]
 #[relationship(relationship_target = ShellTarget)]
-#[component(on_add = Self::on_add)]
 #[require(ForegroundProcessGroup)]
 pub struct Shell {
     #[relationship]
     pub term: Entity,
-}
-impl Shell {
-    fn on_add(mut world: DeferredWorld, ctx: HookContext) {
-        let mut cmds = world.commands();
-        cmds.entity(ctx.entity)
-            .insert(ForegroundProcess(ctx.entity));
-    }
 }
 
 #[derive(Message, Debug)]
@@ -72,8 +64,9 @@ pub struct ShellJob(pub Entity);
 #[relationship_target(relationship = ShellJob)]
 pub struct ShellJobTarget(Entity);
 
-/// This group gets its [stdio](crate::data::io) piped directly to the [`Terminal`].
+/// This group gets its stdio piped directly to the [`Terminal`].
 /// **Important:** this should _only_ be set by the shell.
+/// If this is empty, then the owning [`Shell`] owns the pty.
 #[derive(Component, Reflect, Debug, Default)]
 #[relationship_target(relationship = ForegroundProcess)]
 pub struct ForegroundProcessGroup {

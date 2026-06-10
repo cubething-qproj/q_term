@@ -9,14 +9,12 @@ pub fn spawn_process(
     mut reader: MessageReader<ShellSpawnMsg>,
 ) {
     for msg in reader.read() {
-        let (shell_id, shell) = r!(q_shell.get(msg.shell));
-        let term = r!(q_terminfo.get(shell.term));
+        let (shell_id, shell) = c!(q_shell.get(msg.shell));
+        let term = cq!(q_terminfo.get(shell.term));
         let term_id = term.id;
         let mut entt = commands.spawn_empty();
-        let proc_id = entt.id();
         let val = (
             Process {
-                entity: proc_id,
                 prog: msg.prog,
                 argv: msg.argv.clone(),
                 environ: msg.environ.clone(),

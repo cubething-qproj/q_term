@@ -1,3 +1,5 @@
+use q_term::msgs::term::{apply_scroll, process_input};
+
 use crate::prelude::*;
 
 /// Counts how many `TermRedrawRequestedMsg` entries the in-test reader has

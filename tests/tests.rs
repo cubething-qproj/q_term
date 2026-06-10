@@ -4,6 +4,7 @@ pub mod prelude {
     pub use super::get_test_app;
     pub use bevy::prelude::*;
     pub use q_term::prelude::*;
+    pub use q_term::systems::term::*;
     pub use q_test_harness::prelude::*;
 }
 

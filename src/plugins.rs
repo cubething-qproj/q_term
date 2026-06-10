@@ -86,7 +86,6 @@ macro_rules! impl_run_progs {
 pub struct ProcessPlugin;
 impl Plugin for ProcessPlugin {
     fn build(&self, app: &mut App) {
-        use crate::msgs::prog::*;
         use crate::systems::prog::*;
         app.add_message::<SignalMsg>();
         app.add_message::<ShellSpawnMsg>();

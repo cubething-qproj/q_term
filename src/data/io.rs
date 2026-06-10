@@ -40,7 +40,7 @@ pub enum TermInput {
 /// [`LineDiscipline`]
 #[derive(Message, Debug, Clone, Reflect)]
 pub struct TermInputMsg {
-    pub pty: Entity,
+    pub term: Entity,
     pub input: TermInput,
 }
 
@@ -83,8 +83,8 @@ pub enum Sig {
 /// These are also known as interrupts.
 #[derive(Message, Clone, Copy, Debug, Reflect)]
 pub struct SignalMsg {
-    /// Source [`Pty`]
-    pub pty: Entity,
+    /// Source [`Terminal`]
+    pub term: Entity,
     /// Message sink - the targeted job
     pub target: Entity,
     /// Signal kind

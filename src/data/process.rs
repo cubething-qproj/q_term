@@ -11,7 +11,7 @@ use bevy::{
 
 use crate::prelude::*;
 
-/// A [`Resource`] which tracks registered a [`Program`] through its
+/// A [`Resource`] which tracks a registered [`Program`] through its
 /// [`ProgramLabel`].
 #[derive(Resource, Default, Deref, DerefMut, Debug)]
 pub struct Programs(pub(crate) HashMap<InternedProgramLabel, ProgramData>);
@@ -45,15 +45,7 @@ pub trait IntoProgramSystem<M>: IntoSystem<In<Entity>, (), M> + 'static {}
 impl<T, M> IntoProgramSystem<M> for T where T: IntoSystem<In<Entity>, (), M> + 'static {}
 
 define_label!(
-    /// A [`Process`] is a potentially long-running [`Schedule`] which is
-    /// managed by a [`Shell`]. Processes should be run by running [`Shell::spawn_process`].
-    /// The process dies when this component is removed.
-    /// Lifecycle hooks are a good way to implement de/initialization behaviors.
-    // TODO: inline doctest here
-    // TODO: Process should have reference to its own entity.
-    // Cannot assume singleton entity, multiple instances of the same processes
-    // are likely to be spawned (job control).
-    // TODO: Piping? Need file descriptors if so. Probably a relationship (ProcessFd<const CHANNEL: u8)
+    /// Label for a [`Program`] analagous to [`ScheduleLabel`]
     ProgramLabel,
     PROGRAM_LABEL_INTERNER,
     extra_methods: {
@@ -79,7 +71,7 @@ pub trait Program {
     /// Returns a HashMap from the signal to its override command.
     /// By default, SIGINT, SIGQUIT, SIGTERM, and SIGHUP all despawn the entity.
     /// Use [`ProcessSignalOverride`] to define the schedule.
-    fn trap(&self, _kind: Sig) -> Option<Schedule> {
+    fn trap(&self, _kind: Sig) -> Option<SystemId> {
         None
     }
 }
@@ -99,8 +91,11 @@ macro_rules! impl_program_label {
     };
 }
 
-/// An instantiated process; a running program. Modify its behavior by
-/// implementing its [`ProgramLabel`]
+/// A [`Process`] is a set of [`System`]s which is managed by a [`Shell`].
+/// Processes should be run by running [`Shell::spawn_process`]. The process
+/// dies when this component is removed. Lifecycle hooks are a good way to
+/// implement de/initialization behaviors.
+// TODO: Piping? Need file descriptors if so. Probably a relationship (ProcessFd<const CHANNEL: u8)
 #[derive(Component, Clone, Debug)]
 #[component(immutable)]
 pub struct Process {

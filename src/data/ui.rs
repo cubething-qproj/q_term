@@ -6,7 +6,7 @@ use bevy::{
     text::LineHeight,
 };
 
-use crate::prelude::*;
+use crate::{prelude::*, systems::term::on_scroll};
 
 /// [bevy::ui]-based implementation of the [`Terminal`] frontend.
 ///

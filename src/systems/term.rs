@@ -72,8 +72,8 @@ pub fn resize(
             LineHeight::RelativeToFont(rel) => rel * font.font_size,
         };
         let cw_value = cw.value();
-        c!(cw_value > 0.0);
-        c!(line_height > 0.0);
+        cq!(cw_value > 0.0);
+        cq!(line_height > 0.0);
         let cols = (size.x / cw_value).floor() as usize;
         let rows = (size.y / line_height).floor() as usize;
         let target = vt_ui.target();

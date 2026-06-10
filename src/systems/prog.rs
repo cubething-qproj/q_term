@@ -9,28 +9,9 @@ pub fn run_programs<S: ScheduleLabel + Default>(
     progs: Res<Programs>,
 ) {
     for proc in q_procs.iter() {
+        trace!("{:?}: Running {:?}", S::default(), proc.prog.name());
         let pdata = c!(progs.0.get(&proc.prog));
-        let sysid = c!(pdata.get(&S::default().intern()));
+        let sysid = cq!(pdata.get(&S::default().intern()));
         commands.run_system_with(*sysid, proc.clone());
     }
-}
-
-macro_rules! impl_run_progs {
-    ($app:ident, $($sched:ident),+) => {
-        $(
-            $app.add_systems($sched, run_programs::<$sched>);
-        )+
-    };
-}
-
-pub fn plugin(app: &mut App) {
-    impl_run_progs!(
-        app,
-        PreUpdate,
-        Update,
-        PostUpdate,
-        FixedPreUpdate,
-        FixedUpdate,
-        FixedPostUpdate
-    );
 }

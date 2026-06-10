@@ -1,13 +1,11 @@
 //! Minimal program example.
 
-use bevy::{ecs::schedule::ScheduleLabel, prelude::*};
+use bevy::prelude::*;
+use bevy::window::WindowResolution;
 use q_term::impl_program_label;
 use q_term::prelude::*;
 
-#[derive(ScheduleLabel, Debug, Clone, Copy, PartialEq, Eq, Hash)]
-struct MySchedule;
-
-#[derive(Clone, Copy)]
+#[derive(Clone, Copy, Debug, Hash, PartialEq, Eq)]
 struct MyProg;
 impl_program_label!(MyProg, "myprog");
 
@@ -22,6 +20,7 @@ fn main() {
             ..default()
         }),
         TerminalPlugin,
+        ProcessPlugin,
     ));
     app.register_program(MyProg);
 
@@ -34,14 +33,14 @@ fn main() {
          mut timer: Local<Option<Timer>>,
          time: Res<Time>| {
             if timer.is_none() {
-                timer = Some(Timer::from_seconds(1., TimerMode::Repeating)).into();
+                *timer = Some(Timer::from_seconds(1., TimerMode::Repeating));
             }
-            timer.as_ref().unwrap().tick(time.delta());
-            if timer.just_finished() {
-                proc.write(
-                    &mut commands,
-                    format!("Hello from process {}!", proc.entity),
-                );
+            let t = timer.as_mut().unwrap();
+            t.tick(time.delta());
+            if t.just_finished() {
+                let msg = format!("Hello from process {}!\n", proc.entity);
+                info!(msg);
+                proc.write(&mut commands, msg);
             }
         },
     );

@@ -33,6 +33,8 @@ pub struct TerminalPlugin;
 
 impl Plugin for TerminalPlugin {
     fn build(&self, app: &mut App) {
+        use crate::msgs::term::*;
+        use crate::systems::term::*;
         app.add_message::<StdOut>();
         app.add_message::<StdErr>();
         app.add_message::<TermStdIn>();
@@ -74,10 +76,32 @@ impl Plugin for TerminalPlugin {
     }
 }
 
+macro_rules! impl_run_progs {
+    ($app:ident, $($sched:ident),+) => {
+        $(
+            $app.add_systems($sched, run_programs::<$sched>);
+        )+
+    };
+}
 #[derive(Debug)]
 pub struct ProcessPlugin;
 impl Plugin for ProcessPlugin {
     fn build(&self, app: &mut App) {
-        todo!()
+        use crate::msgs::prog::*;
+        use crate::systems::prog::*;
+        app.add_message::<SignalMsg>();
+        app.add_message::<ShellSpawnMsg>();
+
+        app.add_systems(Update, spawn_process);
+
+        impl_run_progs!(
+            app,
+            PreUpdate,
+            Update,
+            PostUpdate,
+            FixedPreUpdate,
+            FixedUpdate,
+            FixedPostUpdate
+        );
     }
 }

@@ -11,52 +11,9 @@ use bevy::{
 
 use crate::prelude::*;
 
-#[test]
-fn example() {
-    use crate::prelude::*;
-    let mut app = App::new();
-
-    #[derive(ScheduleLabel, Debug, Clone, Copy, PartialEq, Eq, Hash)]
-    struct MySchedule;
-
-    #[derive(Clone, Copy)]
-    struct MyProg;
-    impl_program_label!(MyProg, "myprog");
-
-    let term = app.world_mut().spawn(Terminal).id();
-    let shell = app.world_mut().spawn(Shell).id();
-
-    app.register_program(MyProg);
-
-    // Say hello once every second
-    app.add_program_system(
-        MyProg,
-        Update,
-        |proc: In<Process>,
-         mut commands: Commands,
-         mut timer: Local<Option<Timer>>,
-         time: Res<Time>| {
-            if timer.is_none() {
-                timer = Some(Timer::from_seconds(1., TimerMode::Repeating)).into();
-            }
-            timer.as_ref().unwrap().tick(time.delta());
-            if timer.just_finished() {
-                proc.write(
-                    &mut commands,
-                    format!("Hello from process {}!", proc.entity),
-                );
-            }
-        },
-    );
-
-    app.add_systems(Startup, |mut commands: Commands| {
-        Shell::spawn_process::<MyProg>(shell, &mut commands);
-    });
-}
-
 /// A [`Resource`] which tracks registered a [`Program`] through its
 /// [`ProgramLabel`].
-#[derive(Resource, Default, Deref, DerefMut)]
+#[derive(Resource, Default, Deref, DerefMut, Debug)]
 pub struct Programs(pub(crate) HashMap<InternedProgramLabel, ProgramData>);
 impl Programs {
     pub fn get(&self, label: impl ProgramLabel) -> Option<&ProgramData> {
@@ -125,7 +82,7 @@ pub trait Program {
 macro_rules! impl_program_label {
     ($t:ty, $name:literal) => {
         impl ProgramLabel for $t {
-            fn name() -> ProcessName {
+            fn name(&self) -> ProcessName {
                 ProcessName::new($name)
             }
             fn dyn_clone(&self) -> Box<dyn ProgramLabel> {
@@ -137,7 +94,7 @@ macro_rules! impl_program_label {
 
 /// An instantiated process; a running program. Modify its behavior by
 /// implementing its [`ProgramLabel`]
-#[derive(Component, Clone)]
+#[derive(Component, Clone, Debug)]
 #[component(immutable)]
 pub struct Process {
     /// The currently attached entity ID.
@@ -174,6 +131,7 @@ impl Process {
 
 /// The name of a [`Process`]. This type exists to ensure validity on construction.
 /// In particular, process names must not contain whitespace.
+#[derive(Debug, Deref)]
 pub struct ProcessName(&'static str);
 impl ProcessName {
     pub fn new(name: &'static str) -> Self {
@@ -200,10 +158,10 @@ pub trait ProgramAppExt {
 impl ProgramAppExt for App {
     fn register_program(&mut self, prog: impl ProgramLabel) {
         self.world_mut().init_resource::<Programs>();
-        self.world_mut()
-            .resource_mut::<Programs>()
-            .0
-            .insert(prog.intern(), ProgramData::default());
+        let mut progs = self.world_mut().resource_mut::<Programs>();
+        progs.0.insert(prog.intern(), ProgramData::default());
+        trace!("Registered program {:?}", prog,);
+        trace!("Programs: {:#?}", progs)
     }
     fn add_program_system<M>(
         &mut self,
@@ -213,8 +171,10 @@ impl ProgramAppExt for App {
     ) {
         self.init_resource::<Programs>();
         let id = self.register_system(system);
-        let mut res = self.world_mut().resource_mut::<Programs>();
-        let data = res.entry(prog.clone()).or_default();
+        let mut progs = self.world_mut().resource_mut::<Programs>();
+        let data = progs.entry(prog.clone()).or_default();
         data.insert(schedule.intern(), id);
+        trace!("Registered program system for {:?}", prog,);
+        trace!("Programs: {:#?}", progs)
     }
 }

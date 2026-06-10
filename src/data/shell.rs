@@ -70,6 +70,11 @@ pub struct ForegroundProcessGroup {
     #[relationship_target]
     processes: Vec<Entity>,
 }
+impl ForegroundProcessGroup {
+    pub fn processes(&self) -> &[Entity] {
+        &self.processes
+    }
+}
 
 /// Attached to a [`Process`] in the [`ForegroundProcessGroup`].
 /// The inner value is a pointer to a [`Shell`] with an attached

@@ -2,6 +2,8 @@
 
 use bevy::prelude::*;
 use bevy::window::WindowResolution;
+use bevy_inspector_egui::bevy_egui::EguiPlugin;
+use bevy_inspector_egui::quick::WorldInspectorPlugin;
 use q_term::impl_program_label;
 use q_term::prelude::*;
 
@@ -21,6 +23,8 @@ fn main() {
         }),
         TerminalPlugin,
         ProcessPlugin,
+        EguiPlugin::default(),
+        WorldInspectorPlugin::default(),
     ));
     app.register_program(MyProg);
 

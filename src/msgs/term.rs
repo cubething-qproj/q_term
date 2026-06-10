@@ -64,7 +64,7 @@ pub fn process_input(
     q_terminfo: Query<TermInfo>,
     q_lines: Query<(Entity, &VtLine, &VtRowTarget)>,
     q_rows: Query<(Entity, &VtRow)>,
-    q_fg: Query<(Entity, &ForegroundProcess)>,
+    q_fg: Query<&ForegroundProcessGroup>,
 ) {
     trace!("process_input");
     let mut to_write: HashMap<Entity, Vec<&TermWrite>> = HashMap::new();
@@ -93,11 +93,8 @@ pub fn process_input(
 
         let fg_job = terminfo
             .shell_target
-            .map(|t| t.target())
-            .and_then(|shell_id| {
-                q_fg.iter()
-                    .find_map(|(id, fg)| (fg.0 == shell_id).then_some(id))
-            })
+            .and_then(|t| q_fg.get(t.target()).ok())
+            .and_then(|g| g.processes().first().copied())
             .unwrap_or(Entity::PLACEHOLDER);
 
         let mut grid = Grid::new(&terminfo, fg_job, &q_lines, &q_rows);

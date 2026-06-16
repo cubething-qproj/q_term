@@ -360,3 +360,27 @@ impl VtSize {
             .write_message(TermReflowMsg::new(ctx.entity));
     }
 }
+
+/// 1-1 relationship describing the foreground terminal process. This process
+/// will be the target of all outflowing [`TermStdIn`] messages, and
+/// only the [`TermStdOut`] messages from this entity will be rendered
+/// to the [`Terminal`].
+#[derive(Component, Debug, Reflect)]
+#[relationship(relationship_target=VtForegroundProcessTarget)]
+pub struct VtForegroundProcess {
+    #[relationship]
+    terminal: Entity,
+}
+
+/// Terminal relationship target for [`VtForegroundProcess`]
+#[derive(Component, Debug, Reflect)]
+#[relationship_target(relationship=VtForegroundProcess)]
+pub struct VtForegroundProcessTarget {
+    #[relationship_target]
+    process: Entity,
+}
+impl VtForegroundProcessTarget {
+    pub fn process(&self) -> Entity {
+        self.process
+    }
+}

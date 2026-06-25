@@ -19,20 +19,19 @@ use crate::prelude::*;
 /// [`MessageWriter`] system params; entity cleanup uses [`Commands`].
 pub fn drain_pending(
     mut commands: Commands,
-    mut input: MessageWriter<StdOut>,
+    mut input: MessageWriter<TermStdOut>,
     mut scroll: MessageWriter<TermScrollMsg>,
     q_terminfo: Query<TermInfo>,
-    q_pending_input: Query<(Entity, &PendingTermInput)>,
+    q_pending_input: Query<(Entity, &PendingStdOut)>,
     q_pending_scroll: Query<(Entity, &PendingTermScroll)>,
 ) {
     trace!("drain_pending");
     for (entity, pending) in &q_pending_input {
         if q_terminfo.get(entity).is_ok() {
-            commands.entity(entity).remove::<PendingTermInput>();
-            input.write(StdOut {
-                term: entity,
-                writes: pending.writes.clone(),
-            });
+            commands.entity(entity).remove::<PendingStdOut>();
+            for msg in pending.msgs.iter() {
+                input.write(msg.clone());
+            }
         }
     }
     for (entity, pending) in &q_pending_scroll {
@@ -55,65 +54,67 @@ pub fn drain_pending(
 /// target; `drain_pending` re-emits them once the target resolves.
 /// Emits [`TermRedrawRequestedMsg`] per affected target.
 pub fn process_input(
-    mut stdout: MessageReader<StdOut>,
-    mut stderr: MessageReader<StdErr>,
+    mut stdout: MessageReader<TermStdOut>,
     mut commands: Commands,
     mut redraw_requested: MessageWriter<TermRedrawRequestedMsg>,
     mut stdin_writer: MessageWriter<'_, TermStdIn>,
-    cap: Res<PendingTermInputCap>,
     q_terminfo: Query<TermInfo>,
     q_lines: Query<(Entity, &VtLine, &VtRowTarget)>,
     q_rows: Query<(Entity, &VtRow)>,
-    q_fg: Query<&ForegroundProcessGroup>,
+    q_fg: Query<Entity, With<VtForegroundProcess>>,
 ) {
     trace!("process_input");
-    let mut to_write: HashMap<Entity, Vec<&TermWrite>> = HashMap::new();
+    let mut to_write: HashMap<Entity, Vec<&TermStdOut>> = HashMap::new();
     for msg in stdout.read() {
-        to_write.entry(msg.term).or_default().extend(&msg.writes);
+        to_write.entry(msg.term).or_default().push(&msg);
     }
-    for msg in stderr.read() {
-        to_write.entry(msg.term).or_default().extend(&msg.writes);
-    }
-    let cap_bytes = cap.bytes;
-    for (target, writes) in to_write {
-        let terminfo = match q_terminfo.get(target) {
+    for (target_term, stdout_msgs) in to_write {
+        let terminfo = match q_terminfo.get(target_term) {
             Ok(t) if t.size.cols > 0 && t.size.rows > 0 => t,
             _ => {
-                let writes_owned: Vec<TermWrite> = writes.iter().map(|w| (*w).clone()).collect();
+                let stdout_owned: Vec<TermStdOut> =
+                    stdout_msgs.iter().map(|w| (*w).clone()).collect();
                 commands
-                    .entity(target)
-                    .entry::<PendingTermInput>()
+                    .entity(target_term)
+                    .entry::<PendingStdOut>()
                     .or_default()
-                    .and_modify(move |mut pending| {
-                        pending.push_writes(writes_owned, cap_bytes);
-                    });
+                    .and_modify(move |mut pending| pending.msgs.extend(stdout_owned));
                 continue;
             }
         };
 
-        let fg_job = terminfo
-            .shell_target
-            .and_then(|t| q_fg.get(t.target()).ok())
-            .and_then(|g| g.processes().first().copied())
-            .unwrap_or(Entity::PLACEHOLDER);
+        let fg_job = terminfo.fg_process.and_then(|t| q_fg.get(t.process()).ok());
+        let fg_job = cq!(fg_job);
+
+        let writes = stdout_msgs
+            .iter()
+            .filter_map(|stdout| {
+                if stdout.from == fg_job && stdout.term == target_term {
+                    Some(&stdout.message)
+                } else {
+                    None
+                }
+            })
+            .flatten()
+            .collect::<Vec<_>>();
 
         let mut grid = Grid::new(&terminfo, fg_job, &q_lines, &q_rows);
         {
-            let mut performer = AnsiPerformer::new(&mut grid, &mut stdin_writer, target);
+            let mut performer = AnsiPerformer::new(&mut grid, &mut stdin_writer, target_term);
             let mut stream = AnsiParser::new();
-            for spawner in writes {
-                if let Some(style) = spawner.style {
+            for write in writes {
+                if let Some(style) = write.style {
                     performer.reset_style(style);
-                } else if spawner.reset_style {
+                } else if write.reset_style {
                     performer.reset_style(VtCellStyle::default());
                 }
-                for byte in spawner.text.as_bytes() {
+                for byte in write.text.as_bytes() {
                     stream.advance(&mut performer, *byte);
                 }
             }
         }
         grid.sync(&mut commands);
-        redraw_requested.write(TermRedrawRequestedMsg::new(target));
+        redraw_requested.write(TermRedrawRequestedMsg::new(target_term));
     }
 }
 

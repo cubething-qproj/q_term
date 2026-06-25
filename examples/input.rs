@@ -24,7 +24,16 @@ const PROMPT: &str = "> ";
 #[derive(Resource)]
 struct Input {
     term_id: Entity,
+    fg: Entity,
     buffer: String,
+}
+
+fn write(term: Entity, from: Entity, text: impl ToString) -> TermStdOut {
+    TermStdOut {
+        term,
+        from,
+        message: vec![TermWrite::new(text)],
+    }
 }
 
 fn main() {
@@ -47,6 +56,7 @@ fn main() {
 fn setup(mut commands: Commands) {
     commands.spawn(Camera2d);
     let term_id = commands.spawn(Terminal).id();
+    let fg = commands.spawn(VtForegroundProcess::new(term_id)).id();
     commands.spawn((
         Node {
             width: vw(100),
@@ -57,9 +67,10 @@ fn setup(mut commands: Commands) {
         VtUi::new(term_id),
     ));
     // Initial prompt.
-    commands.write_message(StdOut::write(term_id, PROMPT));
+    commands.write_message(write(term_id, fg, PROMPT));
     commands.insert_resource(Input {
         term_id,
+        fg,
         buffer: String::new(),
     });
 }
@@ -114,13 +125,15 @@ fn on_key(
         // empty prompt below it. `\r\x1b[2K` is redundant here
         // because the newline starts us on virgin space, but keeping
         // it makes the redraw idiom uniform for the live-edit path.
-        commands.write_message(StdOut::write(
+        commands.write_message(write(
             input.term_id,
+            input.fg,
             format!("\r\x1b[2K{PROMPT}{line}\n{PROMPT}"),
         ));
     } else if dirty {
-        commands.write_message(StdOut::write(
+        commands.write_message(write(
             input.term_id,
+            input.fg,
             format!("\r\x1b[2K{PROMPT}{}", input.buffer),
         ));
     }

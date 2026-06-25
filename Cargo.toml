@@ -6,9 +6,9 @@ license = "MIT OR Apache-2.0"
 repository = "https://github.com/cubething-qproj/q_term"
 
 [dependencies]
-bevy = "0.18"
-bevy-inspector-egui = "0.36.0"
-bevy_dylib = { optional = true, version = "0.18.0" }
+bevy = "0.19"
+bevy-inspector-egui = "0.37.0"
+bevy_dylib = { optional = true, version = "0.19.0" }
 tiny_bail = "0.7.0"
 itertools = "0.14.0"
 anstyle-parse = "1.0.0"

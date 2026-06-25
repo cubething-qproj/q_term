@@ -56,23 +56,24 @@ struct Ui(Entity);
 /// `VtUi::on_add`) fires when commands flush. `NormalizedRenderTarget
 /// ::None` lets us construct a [`Location`] without a real window.
 fn fire_scroll(commands: &mut Commands, entity: Entity, unit: MouseScrollUnit, y: f32) {
-    commands.trigger(Pointer::<Scroll> {
-        entity,
-        pointer_id: PointerId::Mouse,
-        pointer_location: Location {
+    commands.trigger(Pointer::<Scroll>::new(
+        PointerId::Mouse,
+        Location {
             target: NormalizedRenderTarget::None {
                 width: 0,
                 height: 0,
             },
             position: Vec2::ZERO,
         },
-        event: Scroll {
+        Scroll {
             unit,
             x: 0.0,
             y,
             hit: HitData::new(Entity::PLACEHOLDER, 0.0, None, None),
+            phase: bevy::input::touch::TouchPhase::Moved,
         },
-    });
+        entity,
+    ));
 }
 
 /// Spawn a terminal pre-loaded with [`SEED_LINES`] lines of text and

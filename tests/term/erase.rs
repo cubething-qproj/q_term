@@ -21,9 +21,8 @@ fn erase_test(
 ) {
     let mut app = get_test_app();
     app.add_systems(Startup, move |mut commands: Commands| {
-        let term_id = commands.spawn(Terminal).id();
-        commands.entity(term_id).insert(VtSize { cols, rows });
-        commands.write_message(StdOut::write(term_id, input));
+        let TestTerm { term, fg } = spawn_test_term(&mut commands, VtSize { cols, rows });
+        commands.write_message(write(term, fg, input));
     });
     app.add_step(
         0,

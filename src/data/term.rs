@@ -22,7 +22,7 @@ use bevy::ecs::{lifecycle::HookContext, world::DeferredWorld};
 ///# let mut world = app.world_mut();
 ///# let mut commands = world.commands();
 /// let term_id = commands.spawn(Terminal).id();
-/// commands.spawn(( Shell(term_id) ))
+/// // attach a foreground process from a sibling crate (e.g. `q_proc`).
 /// ```
 #[derive(Component, Reflect)]
 #[require(
@@ -358,5 +358,34 @@ impl VtSize {
         world
             .commands()
             .write_message(TermReflowMsg::new(ctx.entity));
+    }
+}
+
+/// 1-1 relationship describing the foreground terminal process. This process
+/// will be the target of all outflowing [`TermStdIn`] messages, and
+/// only the [`TermStdOut`] messages from this entity will be rendered
+/// to the [`Terminal`].
+#[derive(Component, Debug, Reflect)]
+#[relationship(relationship_target=VtForegroundProcessTarget)]
+pub struct VtForegroundProcess {
+    #[relationship]
+    terminal: Entity,
+}
+impl VtForegroundProcess {
+    pub fn new(terminal: Entity) -> Self {
+        Self { terminal }
+    }
+}
+
+/// Terminal relationship target for [`VtForegroundProcess`]
+#[derive(Component, Debug, Reflect)]
+#[relationship_target(relationship=VtForegroundProcess)]
+pub struct VtForegroundProcessTarget {
+    #[relationship_target]
+    process: Entity,
+}
+impl VtForegroundProcessTarget {
+    pub fn process(&self) -> Entity {
+        self.process
     }
 }

@@ -11,9 +11,8 @@ fn ansi_test(
 ) {
     let mut app = get_test_app();
     app.add_systems(Startup, move |mut commands: Commands| {
-        let term_id = commands.spawn(Terminal).id();
-        commands.entity(term_id).insert(VtSize { cols, rows });
-        commands.write_message(StdOut::write(term_id, input));
+        let TestTerm { term, fg } = spawn_test_term(&mut commands, VtSize { cols, rows });
+        commands.write_message(write(term, fg, input));
     });
     app.add_step(
         0,
@@ -154,11 +153,8 @@ fn palette_background() {
     input.push_str("\x1b[0m!");
 
     app.add_systems(Startup, move |mut commands: Commands| {
-        let term_id = commands.spawn(Terminal).id();
-        commands
-            .entity(term_id)
-            .insert(VtSize { cols: 80, rows: 24 });
-        commands.write_message(StdOut::write(term_id, &input));
+        let TestTerm { term, fg } = spawn_test_term(&mut commands, VtSize { cols: 80, rows: 24 });
+        commands.write_message(write(term, fg, &input));
     });
 
     app.add_step(
@@ -426,12 +422,10 @@ fn truecolor() {
     let mut app = get_test_app();
 
     app.add_systems(Startup, |mut commands: Commands| {
-        let term_id = commands.spawn(Terminal).id();
-        commands
-            .entity(term_id)
-            .insert(VtSize { cols: 80, rows: 24 });
-        commands.write_message(StdOut::write(
-            term_id,
+        let TestTerm { term, fg } = spawn_test_term(&mut commands, VtSize { cols: 80, rows: 24 });
+        commands.write_message(write(
+            term,
+            fg,
             "\x1b[38;2;255;0;128;48;2;0;64;255mHi\x1b[0m!",
         ));
     });
@@ -516,11 +510,8 @@ fn palette_foreground() {
     input.push_str("\x1b[0m!");
 
     app.add_systems(Startup, move |mut commands: Commands| {
-        let term_id = commands.spawn(Terminal).id();
-        commands
-            .entity(term_id)
-            .insert(VtSize { cols: 80, rows: 24 });
-        commands.write_message(StdOut::write(term_id, &input));
+        let TestTerm { term, fg } = spawn_test_term(&mut commands, VtSize { cols: 80, rows: 24 });
+        commands.write_message(write(term, fg, &input));
     });
 
     app.add_step(
@@ -603,11 +594,8 @@ fn cursor_write_arbitrary_positions() {
     );
 
     app.add_systems(Startup, move |mut commands: Commands| {
-        let term_id = commands.spawn(Terminal).id();
-        commands
-            .entity(term_id)
-            .insert(VtSize { cols: 40, rows: 24 });
-        commands.write_message(StdOut::write(term_id, input));
+        let TestTerm { term, fg } = spawn_test_term(&mut commands, VtSize { cols: 40, rows: 24 });
+        commands.write_message(write(term, fg, input));
     });
 
     app.add_step(
@@ -676,12 +664,9 @@ fn ansi_test_with_tabstop(
 ) {
     let mut app = get_test_app();
     app.add_systems(Startup, move |mut commands: Commands| {
-        let term_id = commands.spawn(Terminal).id();
-        commands
-            .entity(term_id)
-            .insert(VtSize { cols, rows })
-            .insert(VtTabStop(tabstop));
-        commands.write_message(StdOut::write(term_id, input));
+        let TestTerm { term, fg } = spawn_test_term(&mut commands, VtSize { cols, rows });
+        commands.entity(term).insert(VtTabStop(tabstop));
+        commands.write_message(write(term, fg, input));
     });
     app.add_step(
         0,

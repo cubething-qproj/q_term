@@ -26,6 +26,7 @@ fn main() {
 fn setup(mut commands: Commands) {
     commands.spawn(Camera2d);
     let term_id = commands.spawn(Terminal).id();
+    let fg = commands.spawn(VtForegroundProcess::new(term_id)).id();
     commands.spawn((
         Node {
             width: vw(100),
@@ -100,5 +101,9 @@ fn setup(mut commands: Commands) {
     }
     out.push_str("\x1b[0m\n");
 
-    commands.write_message(StdOut::write(term_id, out));
+    commands.write_message(TermStdOut {
+        term: term_id,
+        from: fg,
+        message: vec![TermWrite::new(out)],
+    });
 }

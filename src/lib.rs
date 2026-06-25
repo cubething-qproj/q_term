@@ -1,13 +1,12 @@
 //! A terminal emulator for Bevy.
 //!
-//! Contains a terminal emulator, process simulation, and a basic shell.
+//! Contains a terminal emulator. Process simulation and shell
+//! interfaces have moved out of this crate -- see `q_proc` for
+//! process management and the shell crate for shell semantics.
 //!
 //! ## Features
 //! - Bevy-ui based terminal rendering
 //! - Rich ANSI parsing
-//! - Process management
-//! - A minimal shell interface
-//! - Shell job management
 //!
 //! ## Non-features
 //! - Multiplexing

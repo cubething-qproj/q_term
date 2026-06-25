@@ -35,6 +35,7 @@ impl Plugin for TerminalPlugin {
         use crate::msgs::term::*;
         use crate::systems::term::*;
         app.add_message::<TermStdIn>();
+        app.add_message::<TermStdOut>();
         app.add_message::<TermScrollMsg>();
         app.add_message::<TermJumpToBottomMsg>();
         app.add_message::<TermReflowMsg>();

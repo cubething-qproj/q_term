@@ -371,6 +371,11 @@ pub struct VtForegroundProcess {
     #[relationship]
     terminal: Entity,
 }
+impl VtForegroundProcess {
+    pub fn new(terminal: Entity) -> Self {
+        Self { terminal }
+    }
+}
 
 /// Terminal relationship target for [`VtForegroundProcess`]
 #[derive(Component, Debug, Reflect)]

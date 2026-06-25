@@ -56,23 +56,24 @@ struct Ui(Entity);
 /// `VtUi::on_add`) fires when commands flush. `NormalizedRenderTarget
 /// ::None` lets us construct a [`Location`] without a real window.
 fn fire_scroll(commands: &mut Commands, entity: Entity, unit: MouseScrollUnit, y: f32) {
-    commands.trigger(Pointer::<Scroll> {
-        entity,
-        pointer_id: PointerId::Mouse,
-        pointer_location: Location {
+    commands.trigger(Pointer::<Scroll>::new(
+        PointerId::Mouse,
+        Location {
             target: NormalizedRenderTarget::None {
                 width: 0,
                 height: 0,
             },
             position: Vec2::ZERO,
         },
-        event: Scroll {
+        Scroll {
             unit,
             x: 0.0,
             y,
             hit: HitData::new(Entity::PLACEHOLDER, 0.0, None, None),
+            phase: bevy::input::touch::TouchPhase::Moved,
         },
-    });
+        entity,
+    ));
 }
 
 /// Spawn a terminal pre-loaded with [`SEED_LINES`] lines of text and
@@ -84,16 +85,18 @@ fn setup_app() -> App {
     let mut app = get_test_app();
 
     app.add_systems(Startup, |mut commands: Commands| {
-        let term_id = commands.spawn(Terminal).id();
+        let TestTerm { term: term_id, fg } = spawn_test_term(
+            &mut commands,
+            VtSize {
+                cols: TERM_COLS,
+                rows: TERM_ROWS,
+            },
+        );
         // VtSize must be present synchronously so `process_input`
         // applies the seeded writes on the first frame instead of
         // queueing them in `PendingTermInput`.
-        commands.entity(term_id).insert(VtSize {
-            cols: TERM_COLS,
-            rows: TERM_ROWS,
-        });
         for i in 0..SEED_LINES {
-            commands.write_message(StdOut::writeln(term_id, format!("line {i}")));
+            commands.write_message(writeln(term_id, fg, format!("line {i}")));
         }
         commands.insert_resource(Term(term_id));
 

@@ -18,6 +18,7 @@ const LABELS: [&str; 4] = ["Loading", "Compiling crates", "Linking", "Done!"];
 #[derive(Resource)]
 struct Spinner {
     term_id: Entity,
+    fg: Entity,
     tick: Timer,
     frame: usize,
     label: usize,
@@ -44,6 +45,7 @@ fn main() {
 fn setup(mut commands: Commands) {
     commands.spawn(Camera2d);
     let term_id = commands.spawn(Terminal).id();
+    let fg = commands.spawn(VtForegroundProcess::new(term_id)).id();
     commands.spawn((
         Node {
             width: vw(100),
@@ -55,6 +57,7 @@ fn setup(mut commands: Commands) {
     ));
     commands.insert_resource(Spinner {
         term_id,
+        fg,
         tick: Timer::from_seconds(0.1, TimerMode::Repeating),
         frame: 0,
         label: 0,
@@ -75,9 +78,13 @@ fn tick(time: Res<Time>, mut s: ResMut<Spinner>, mut commands: Commands) {
         // `\r` returns to col 0; `\x1b[2K` wipes whatever was on the
         // previous frame so shorter labels don't leave a tail behind.
         debug!("update frame");
-        commands.write_message(StdOut::write(
-            s.term_id,
-            format!("\r\x1b[2K{} {}", FRAMES[s.frame], LABELS[s.label]),
-        ));
+        commands.write_message(TermStdOut {
+            term: s.term_id,
+            from: s.fg,
+            message: vec![TermWrite::new(format!(
+                "\r\x1b[2K{} {}",
+                FRAMES[s.frame], LABELS[s.label]
+            ))],
+        });
     }
 }

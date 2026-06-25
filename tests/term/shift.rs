@@ -25,9 +25,8 @@ fn shift_test(
 ) {
     let mut app = get_test_app();
     app.add_systems(Startup, move |mut commands: Commands| {
-        let term_id = commands.spawn(Terminal).id();
-        commands.entity(term_id).insert(VtSize { cols, rows });
-        commands.write_message(StdOut::write(term_id, input));
+        let TestTerm { term, fg } = spawn_test_term(&mut commands, VtSize { cols, rows });
+        commands.write_message(write(term, fg, input));
     });
     app.add_step(
         0,
@@ -338,11 +337,8 @@ fn ech_ich_dch_no_op_on_empty_grid() {
     // means no panic and no spurious line creation.
     let mut app = get_test_app();
     app.add_systems(Startup, move |mut commands: Commands| {
-        let term_id = commands.spawn(Terminal).id();
-        commands
-            .entity(term_id)
-            .insert(VtSize { cols: 10, rows: 3 });
-        commands.write_message(StdOut::write(term_id, "\x1b[3X\x1b[2@\x1b[2P"));
+        let TestTerm { term, fg } = spawn_test_term(&mut commands, VtSize { cols: 10, rows: 3 });
+        commands.write_message(write(term, fg, "\x1b[3X\x1b[2@\x1b[2P"));
     });
     app.add_step(
         0,

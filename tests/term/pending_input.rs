@@ -20,8 +20,10 @@ fn pending_input_attach_and_drain() {
 
     app.add_systems(Startup, |mut commands: Commands| {
         let target = commands.spawn_empty().id();
+        let fg = commands.spawn(VtForegroundProcess::new(target)).id();
         commands.insert_resource(Target(target));
-        commands.write_message(StdOut::write(target, "Hello, world!"));
+        commands.insert_resource(TestTerm { term: target, fg });
+        commands.write_message(write(target, fg, "Hello, world!"));
     });
 
     // Step 0: wait for `process_input` to attach `PendingTermInput`,
@@ -30,13 +32,17 @@ fn pending_input_attach_and_drain() {
     app.add_step(
         0,
         |target: Res<Target>,
-         q_pending: Query<&PendingTermInput>,
+         q_pending: Query<&PendingStdOut>,
          mut commands: Commands,
          mut next: ResMut<NextState<Step>>| {
             let Ok(pending) = q_pending.get(target.0) else {
                 return;
             };
-            let queued: String = pending.writes.iter().map(|w| w.text.clone()).collect();
+            let queued: String = pending
+                .msgs
+                .iter()
+                .flat_map(|m| m.message.iter().map(|w| w.text.clone()))
+                .collect();
             r!(commands.assert(
                 queued == "Hello, world!",
                 format!("expected pending text \"Hello, world!\", got {queued:?}"),
@@ -53,7 +59,7 @@ fn pending_input_attach_and_drain() {
     app.add_step(
         1,
         |target: Res<Target>,
-         q_pending: Query<&PendingTermInput>,
+         q_pending: Query<&PendingStdOut>,
          q_term: Query<TermInfo>,
          q_lines: Query<(Entity, &VtLine)>,
          mut commands: Commands| {

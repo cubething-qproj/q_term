@@ -84,16 +84,18 @@ fn setup_app() -> App {
     let mut app = get_test_app();
 
     app.add_systems(Startup, |mut commands: Commands| {
-        let term_id = commands.spawn(Terminal).id();
+        let TestTerm { term: term_id, fg } = spawn_test_term(
+            &mut commands,
+            VtSize {
+                cols: TERM_COLS,
+                rows: TERM_ROWS,
+            },
+        );
         // VtSize must be present synchronously so `process_input`
         // applies the seeded writes on the first frame instead of
         // queueing them in `PendingTermInput`.
-        commands.entity(term_id).insert(VtSize {
-            cols: TERM_COLS,
-            rows: TERM_ROWS,
-        });
         for i in 0..SEED_LINES {
-            commands.write_message(StdOut::writeln(term_id, format!("line {i}")));
+            commands.write_message(writeln(term_id, fg, format!("line {i}")));
         }
         commands.insert_resource(Term(term_id));
 

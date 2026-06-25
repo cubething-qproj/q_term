@@ -13,11 +13,8 @@ fn hello_world_hierarchy() {
     let mut app = get_test_app();
 
     app.add_systems(Startup, |mut commands: Commands| {
-        let term_id = commands.spawn(Terminal).id();
-        commands
-            .entity(term_id)
-            .insert(VtSize { cols: 80, rows: 24 });
-        commands.write_message(StdOut::write(term_id, "Hello, world!"));
+        let TestTerm { term, fg } = spawn_test_term(&mut commands, VtSize { cols: 80, rows: 24 });
+        commands.write_message(write(term, fg, "Hello, world!"));
     });
 
     app.add_step(

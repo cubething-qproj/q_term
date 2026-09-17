@@ -68,7 +68,7 @@ impl VtUi {
             height: Val::Percent(100.),
             ..Default::default()
         },
-        TextLayout::new_with_no_wrap(),
+        TextLayout::no_wrap(),
         Text,
     )]
 #[relationship(relationship_target = VtUiGridTarget)]

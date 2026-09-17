@@ -83,10 +83,8 @@ pub fn process_input(
             }
         };
 
-        let fg_job = terminfo
-            .fg_process
-            .and_then(|t| q_fg.get(t.process()).ok())
-            .unwrap_or(Entity::PLACEHOLDER);
+        let fg_job = terminfo.fg_process.and_then(|t| q_fg.get(t.process()).ok());
+        let fg_job = cq!(fg_job);
 
         let writes = stdout_msgs
             .iter()

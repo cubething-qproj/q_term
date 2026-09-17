@@ -8,6 +8,23 @@ use itertools::Itertools;
 
 use crate::prelude::*;
 
+/// Resolve a [`bevy::text::FontSize`] to logical pixels.
+///
+/// In 0.18, `TextFont::font_size` was a plain `f32`. In 0.19 it became a
+/// [`bevy::text::FontSize`] enum with `Px`/`Vw`/`Vh`/`VMin`/`VMax`/`Rem`
+/// variants. `q_term`'s scroll/resize math wants a single px value.
+///
+/// q_term does not currently expose any UI for selecting a non-`Px` font
+/// size, so the practical behaviour is unchanged: `Px(v)` resolves to `v`,
+/// `Rem(s)` resolves to `16.0 * s` (a reasonable default rem), and the
+/// viewport-relative variants resolve against an empty viewport (i.e. 0).
+/// If/when viewport-relative font sizes become a feature here, plumb the
+/// real viewport and `RemSize` through and call [`bevy::text::FontSize::eval`]
+/// directly.
+fn font_size_px(font: &TextFont) -> f32 {
+    font.font_size.eval(bevy::math::Vec2::ZERO, 16.0)
+}
+
 // The font propogation / char width calculation is not ideal.
 // This incurs a frame-delay between changing the font and rewrapping.
 // denote a frame change with ';', successive events with '->', and concurrent events with ','
@@ -69,7 +86,7 @@ pub fn resize(
         let size = node.size() * node.inverse_scale_factor();
         let line_height = match line_height {
             LineHeight::Px(px) => *px,
-            LineHeight::RelativeToFont(rel) => rel * font.font_size,
+            LineHeight::RelativeToFont(rel) => rel * font_size_px(font),
         };
         let cw_value = cw.value();
         cq!(cw_value > 0.0);
@@ -226,7 +243,7 @@ pub(crate) fn on_scroll(
         MouseScrollUnit::Pixel => {
             let line_height = match line_height {
                 LineHeight::Px(line_height) => *line_height,
-                LineHeight::RelativeToFont(rel) => rel * text_font.font_size,
+                LineHeight::RelativeToFont(rel) => rel * font_size_px(text_font),
             };
             // Guard against zero/negative line height producing NaN/Inf.
             if line_height > 0.0 {
@@ -307,7 +324,7 @@ pub fn update_cursor_display(
         let width = width.value();
         let height = match *lh {
             LineHeight::Px(h) => h,
-            LineHeight::RelativeToFont(pct) => pct * font.font_size,
+            LineHeight::RelativeToFont(pct) => pct * font_size_px(&font),
         };
         let left = cursor.col as f32 * width;
         let mut top = cursor.row as f32 * height;

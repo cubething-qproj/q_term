@@ -2,9 +2,18 @@
   "nodes": {
     "bevy_cli": {
       "inputs": {
-        "flake-utils": "flake-utils",
-        "nixpkgs": "nixpkgs",
-        "rust-overlay": "rust-overlay"
+        "flake-utils": [
+          "infra",
+          "flake-utils"
+        ],
+        "nixpkgs": [
+          "infra",
+          "nixpkgs"
+        ],
+        "rust-overlay": [
+          "infra",
+          "rust-overlay"
+        ]
       },
       "locked": {
         "lastModified": 1789153659,
@@ -38,37 +47,19 @@
         "type": "github"
       }
     },
-    "flake-utils_2": {
-      "inputs": {
-        "systems": "systems_2"
-      },
-      "locked": {
-        "lastModified": 1731533236,
-        "narHash": "sha256-l0KFg5HjrsfsO/JpG+r7fRrqm12kzFHyUHqHCVpMMbI=",
-        "owner": "numtide",
-        "repo": "flake-utils",
-        "rev": "11707dc2f618dd54ca8739b309ec4fc024de578b",
-        "type": "github"
-      },
-      "original": {
-        "owner": "numtide",
-        "repo": "flake-utils",
-        "type": "github"
-      }
-    },
     "infra": {
       "inputs": {
         "bevy_cli": "bevy_cli",
-        "flake-utils": "flake-utils_2",
-        "nixpkgs": "nixpkgs_2",
-        "rust-overlay": "rust-overlay_2"
+        "flake-utils": "flake-utils",
+        "nixpkgs": "nixpkgs",
+        "rust-overlay": "rust-overlay"
       },
       "locked": {
-        "lastModified": 1789615894,
-        "narHash": "sha256-gJWETIIG5fCMRTB3s+4H9cchNcxrwDbKQidTP1tJU7E=",
+        "lastModified": 1789681824,
+        "narHash": "sha256-gjCpeMRSWcTZ/r7uiu+oB1XeEnmmtRBJMPnOwZBp0Ro=",
         "owner": "cubething-qproj",
         "repo": "infra",
-        "rev": "25ac01b487027f61dbe119178cc965745ed70de4",
+        "rev": "84d400d8b255f64f7c2755bc1634f1d10ad3e56f",
         "type": "github"
       },
       "original": {
@@ -78,22 +69,6 @@
       }
     },
     "nixpkgs": {
-      "locked": {
-        "lastModified": 1781577229,
-        "narHash": "sha256-lrp67w8AulE9Ks53n27I45ADSzbOCn4H+CNW1Ck8B+8=",
-        "owner": "nixos",
-        "repo": "nixpkgs",
-        "rev": "567a49d1913ce81ac6e9582e3553dd90a955875f",
-        "type": "github"
-      },
-      "original": {
-        "owner": "nixos",
-        "ref": "nixos-unstable",
-        "repo": "nixpkgs",
-        "type": "github"
-      }
-    },
-    "nixpkgs_2": {
       "locked": {
         "lastModified": 1789370336,
         "narHash": "sha256-6RSEDHIWQtesQKWSu5qRai8L2h4KgCgMEfJHstW99G4=",
@@ -118,28 +93,6 @@
       "inputs": {
         "nixpkgs": [
           "infra",
-          "bevy_cli",
-          "nixpkgs"
-        ]
-      },
-      "locked": {
-        "lastModified": 1788419040,
-        "narHash": "sha256-Itdv4WV5z+U0VpseZ/f4uvYmULVPxsV3Hc2l9HrCyY4=",
-        "owner": "oxalica",
-        "repo": "rust-overlay",
-        "rev": "1af4dd0db58d4adde06f0840ce28da90f9c66c50",
-        "type": "github"
-      },
-      "original": {
-        "owner": "oxalica",
-        "repo": "rust-overlay",
-        "type": "github"
-      }
-    },
-    "rust-overlay_2": {
-      "inputs": {
-        "nixpkgs": [
-          "infra",
           "nixpkgs"
         ]
       },
@@ -158,21 +111,6 @@
       }
     },
     "systems": {
-      "locked": {
-        "lastModified": 1681028828,
-        "narHash": "sha256-Vy1rq5AaRuLzOxct8nz4T6wlgyUR7zLU309k9mBC768=",
-        "owner": "nix-systems",
-        "repo": "default",
-        "rev": "da67096a3b9bf56a91d16901293e51ba5b49a27e",
-        "type": "github"
-      },
-      "original": {
-        "owner": "nix-systems",
-        "repo": "default",
-        "type": "github"
-      }
-    },
-    "systems_2": {
       "locked": {
         "lastModified": 1681028828,
         "narHash": "sha256-Vy1rq5AaRuLzOxct8nz4T6wlgyUR7zLU309k9mBC768=",

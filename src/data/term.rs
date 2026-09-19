@@ -377,18 +377,9 @@ pub struct VtSize {
 }
 impl VtSize {
     fn on_insert(mut world: DeferredWorld, ctx: HookContext) {
-        // TODO: Keep `VtReady` absent across nonzero resize until reflow has
-        // rebuilt rows for the new dimensions.
-        let ready = world
-            .get::<Self>(ctx.entity)
-            .is_some_and(|size| size.cols > 0 && size.rows > 0);
         let mut commands = world.commands();
+        commands.entity(ctx.entity).remove::<VtReady>();
         commands.write_message(TermReflowMsg::new(ctx.entity));
-        if ready {
-            commands.entity(ctx.entity).insert(VtReady);
-        } else {
-            commands.entity(ctx.entity).remove::<VtReady>();
-        }
     }
 }
 

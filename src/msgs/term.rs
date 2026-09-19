@@ -214,15 +214,23 @@ pub fn apply_reflow(
                 res.append(&mut rows);
                 res
             });
+        let scroll_pos = terminfo
+            .scroll_pos
+            .0
+            .min(rows.len().saturating_sub(terminfo.size.rows));
+        if scroll_pos != terminfo.scroll_pos.0 {
+            commands.entity(target).insert(VtScrollPos(scroll_pos));
+        }
         let row_ids = rows
             .into_iter()
             .rev()
-            .skip(terminfo.scroll_pos.0)
+            .skip(scroll_pos)
             .take(terminfo.size.rows)
             .collect::<Vec<_>>();
         for id in row_ids.into_iter().rev() {
             commands.entity(id).insert(VtViewportRow::new(terminfo.id));
         }
+        commands.entity(target).insert(VtReady);
         redraw_requested.write(TermRedrawRequestedMsg::new(target));
     }
 }

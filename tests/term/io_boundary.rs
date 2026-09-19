@@ -5,6 +5,9 @@ use crate::prelude::*;
 #[derive(Resource, Clone, Copy)]
 struct Term(Entity);
 
+#[derive(Resource, Default)]
+struct InputSent(bool);
+
 #[derive(Resource, Clone, Copy)]
 struct BufferEntities {
     terminal: Entity,
@@ -29,20 +32,30 @@ fn input_set_writes_are_processed_in_the_same_update() {
             .spawn((Terminal, VtSize { cols: 20, rows: 5 }))
             .id();
         commands.insert_resource(Term(term));
+        commands.init_resource::<InputSent>();
     });
     app.add_systems(
         Update,
-        (|term: Res<Term>, mut commands: Commands, mut sent: Local<bool>| {
-            if !*sent {
+        (|term: Res<Term>,
+          ready: Query<(), With<VtReady>>,
+          mut sent: ResMut<InputSent>,
+          mut commands: Commands| {
+            if ready.contains(term.0) && !sent.0 {
                 commands.write_message(VtWriteMsg::new(term.0, b"ordered".to_vec()));
-                *sent = true;
+                sent.0 = true;
             }
         })
         .in_set(TerminalSystems::Input),
     );
     app.add_step(
         0,
-        |q_term: Query<TermInfo>, q_lines: Query<(Entity, &VtLine)>, mut commands: Commands| {
+        |sent: Res<InputSent>,
+         q_term: Query<TermInfo>,
+         q_lines: Query<(Entity, &VtLine)>,
+         mut commands: Commands| {
+            if !sent.0 {
+                return;
+            }
             let actual = text(&q_term, &q_lines);
             r!(commands.assert(
                 actual.as_deref() == Some("ordered"),
@@ -65,6 +78,66 @@ fn zero_sized_terminal_is_not_ready() {
         0,
         |term: Res<Term>, ready: Query<(), With<VtReady>>, mut commands: Commands| {
             r!(commands.assert(!ready.contains(term.0), "zero-sized terminal was ready"));
+            commands.write_message(AppExit::Success);
+        },
+    );
+    assert!(app.run().is_success());
+}
+
+#[test]
+fn resize_reflows_before_restoring_readiness() {
+    let mut app = get_test_app();
+    app.add_systems(Startup, |mut commands: Commands| {
+        let term = commands.spawn((Terminal, VtSize { cols: 2, rows: 1 })).id();
+        commands.spawn(VtLine::from_str(term, "abcd"));
+        commands.insert_resource(Term(term));
+    });
+    app.add_step(
+        0,
+        |term: Res<Term>,
+         q_term: Query<TermInfo>,
+         q_lines: Query<(Entity, &VtLine)>,
+         q_row_targets: Query<&VtRowTarget, With<VtLine>>,
+         q_rows: Query<(Entity, &VtRow)>,
+         mut commands: Commands,
+         mut next: ResMut<NextState<Step>>| {
+            let Ok(terminfo) = q_term.get(term.0) else {
+                return;
+            };
+            if terminfo.ready.is_none()
+                || terminfo.lines(&q_lines).next().is_none()
+                || terminfo.rows(&q_row_targets, &q_rows).count() != 2
+            {
+                return;
+            }
+            commands
+                .entity(term.0)
+                .insert((VtScrollPos(1), VtSize { cols: 4, rows: 1 }));
+            next.set(Step(1));
+        },
+    );
+    app.add_step(
+        1,
+        |term: Res<Term>,
+         q_term: Query<TermInfo>,
+         q_row_targets: Query<&VtRowTarget, With<VtLine>>,
+         q_rows: Query<(Entity, &VtRow)>,
+         mut commands: Commands| {
+            let Ok(terminfo) = q_term.get(term.0) else {
+                return;
+            };
+            r!(commands.assert(
+                terminfo.ready.is_some(),
+                "terminal readiness was not restored after reflow",
+            ));
+            r!(commands.assert(
+                terminfo.scroll_pos.0 == 0,
+                "resize did not clamp stale scroll position",
+            ));
+            r!(commands.assert(
+                terminfo.rows(&q_row_targets, &q_rows).count() == 1,
+                "terminal became ready before rows matched the new size",
+            ));
             commands.write_message(AppExit::Success);
         },
     );
@@ -349,8 +422,21 @@ fn ready_ingress_is_not_limited_by_pending_cap() {
         let term = commands
             .spawn((Terminal, VtSize { cols: 20, rows: 5 }))
             .id();
-        commands.write_message(VtWriteMsg::new(term, b"kept".to_vec()));
+        commands.insert_resource(Term(term));
     });
+    app.add_systems(
+        Update,
+        (|term: Res<Term>,
+          ready: Query<(), With<VtReady>>,
+          mut sent: Local<bool>,
+          mut commands: Commands| {
+            if ready.contains(term.0) && !*sent {
+                commands.write_message(VtWriteMsg::new(term.0, b"kept".to_vec()));
+                *sent = true;
+            }
+        })
+        .in_set(TerminalSystems::Input),
+    );
     app.add_step(
         0,
         |q_term: Query<TermInfo>, q_lines: Query<(Entity, &VtLine)>, mut commands: Commands| {

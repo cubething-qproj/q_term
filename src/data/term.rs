@@ -24,10 +24,12 @@ use bevy::ecs::{lifecycle::HookContext, world::DeferredWorld};
 /// let term_id = commands.spawn(Terminal).id();
 /// // attach a foreground process from a sibling crate (e.g. `q_proc`).
 /// ```
-#[derive(Component, Reflect)]
+#[derive(Component, Reflect, Debug)]
 #[require(
     VtLineTarget,
     VtCursor,
+    VtParserState,
+    VtRenderState,
     VtScrollPos,
     VtSize,
     VtViewport,
@@ -36,6 +38,17 @@ use bevy::ecs::{lifecycle::HookContext, world::DeferredWorld};
     Name::new("Terminal")
 )]
 pub struct Terminal;
+
+/// Persistent parser state for a terminal byte stream.
+#[derive(Component, Clone, Debug, Default)]
+pub struct VtParserState(pub(crate) AnsiParser);
+
+/// Persistent render style applied by the terminal parser.
+#[derive(Component, Clone, Copy, Debug, Default)]
+pub struct VtRenderState {
+    pub(crate) style: VtCellStyle,
+    pub(crate) default_style: VtCellStyle,
+}
 
 /// DEC private modes the parser tracks per [`Terminal`]. Mutated by
 /// SM (`CSI ? Pn h`) and RM (`CSI ? Pn l`); read by render systems
@@ -361,10 +374,10 @@ impl VtSize {
     }
 }
 
-/// 1-1 relationship describing the foreground terminal process. This process
-/// will be the target of all outflowing [`TermStdIn`] messages, and
-/// only the [`TermStdOut`] messages from this entity will be rendered
-/// to the [`Terminal`].
+/// 1-1 relationship describing the foreground terminal peer.
+///
+/// External integration code maintains this opaque relationship. The terminal
+/// may use it to suppress background writes when configured to do so.
 #[derive(Component, Debug, Reflect)]
 #[relationship(relationship_target=VtForegroundProcessTarget)]
 pub struct VtForegroundProcess {

@@ -7,6 +7,8 @@ use bevy::ecs::query::QueryData;
 #[derive(QueryData, Debug)]
 pub struct TermInfo {
     pub id: Entity,
+    /// We include the empty [`Terminal`] struct to ensure we aren't querying loose components.
+    pub terminal: &'static Terminal,
     pub cursor: &'static VtCursor,
     pub modes: &'static VtModes,
     pub line_target: &'static VtLineTarget,
@@ -44,20 +46,22 @@ impl<'w, 's> TermInfoItem<'w, 's> {
         })
     }
 
-    /// Write text into this terminal's buffer. Supports ANSI.
-    pub fn write(&self, commands: &mut Commands, from: Entity, value: impl ToString) {
-        commands.write_message(TermStdOut {
-            from,
-            message: vec![TermWrite::new(value)],
-            term: self.id,
-        });
+    /// Write text directly into this terminal's byte stream.
+    pub fn write(&self, commands: &mut Commands, value: impl AsRef<[u8]>) {
+        commands.write_message(VtWriteMsg::new(self.id, value.as_ref().to_vec()));
     }
-    /// Write rich text spans into this terminal's buffer.
-    pub fn write_spans(&self, commands: &mut Commands, from: Entity, spans: Vec<TermWrite>) {
-        commands.write_message(TermStdOut {
+
+    /// Write text into this terminal's byte stream with source metadata.
+    pub fn write_from(&self, commands: &mut Commands, from: Entity, value: impl AsRef<[u8]>) {
+        commands.write_message(VtWriteMsg::from_peer(
+            self.id,
             from,
-            message: spans,
-            term: self.id,
-        });
+            value.as_ref().to_vec(),
+        ));
+    }
+
+    /// Encode and write rich terminal values into this terminal's byte stream.
+    pub fn write_spans(&self, commands: &mut Commands, spans: Vec<TermWrite>) {
+        commands.write_message(VtWriteMsg::new(self.id, term_writes_to_ansi(spans)));
     }
 }

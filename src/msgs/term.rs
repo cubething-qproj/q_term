@@ -4,32 +4,44 @@ use bevy::platform::collections::HashMap;
 
 use crate::prelude::*;
 
-/// Re-emit pending input/scroll messages once their target resolves.
-///
-/// Iterates entities carrying [`PendingTermInput`] or
-/// [`PendingTermScroll`]. For each, attempts to resolve the target's
-/// [`TermInfo`]; on success, removes the pending component and
-/// re-emits the corresponding [`TermStdOut`] / [`TermScrollMsg`].
-/// Entities whose [`TermInfo`] is still unresolvable retain their
-/// pending component and are retried next frame.
-///
-/// Registered as the first system in [`TerminalSystems::Process`] so
-/// the re-emitted messages are observed by `process_input` and
-/// `apply_scroll` later in the same chain. Re-emits use
-/// [`MessageWriter`] system params; entity cleanup uses [`Commands`].
+/// Remove terminal-local transient state after [`Terminal`] removal.
+pub fn cleanup_removed_terminals(
+    mut commands: Commands,
+    mut removed: RemovedComponents<Terminal>,
+    q_terminals: Query<(), With<Terminal>>,
+) {
+    for entity in removed.read() {
+        if q_terminals.contains(entity) {
+            continue;
+        }
+        if let Ok(mut entity) = commands.get_entity(entity) {
+            entity.remove::<(
+                PendingVtWrites,
+                PendingTermScroll,
+                VtParserState,
+                VtRenderState,
+            )>();
+        }
+    }
+}
+
+/// Re-emit pending ingress and scroll messages once their terminal is ready.
 pub fn drain_pending(
     mut commands: Commands,
-    mut input: MessageWriter<TermStdOut>,
+    mut input: MessageWriter<VtWriteMsg>,
     mut scroll: MessageWriter<TermScrollMsg>,
     q_terminfo: Query<TermInfo>,
-    q_pending_input: Query<(Entity, &PendingStdOut)>,
+    q_pending_input: Query<(Entity, &PendingVtWrites)>,
     q_pending_scroll: Query<(Entity, &PendingTermScroll)>,
 ) {
     trace!("drain_pending");
     for (entity, pending) in &q_pending_input {
-        if q_terminfo.get(entity).is_ok() {
-            commands.entity(entity).remove::<PendingStdOut>();
-            for msg in pending.msgs.iter() {
+        if q_terminfo
+            .get(entity)
+            .is_ok_and(|term| term.size.cols > 0 && term.size.rows > 0)
+        {
+            commands.entity(entity).remove::<PendingVtWrites>();
+            for msg in pending.chunks() {
                 input.write(msg.clone());
             }
         }
@@ -45,71 +57,64 @@ pub fn drain_pending(
     }
 }
 
-/// Drain [`TermStdOut`] writes and apply them via the ANSI parser.
-///
-/// Looks up each message's target [`TermInfo`], builds a [`Grid`],
-/// runs the parser/performer, then syncs the grid back into the world.
-/// Targets whose [`TermInfo`] cannot be resolved this frame have their
-/// pending writes attached as a [`PendingTermInput`] component on the
-/// target; `drain_pending` re-emits them once the target resolves.
-/// Emits [`TermRedrawRequestedMsg`] per affected target.
+/// Drain [`VtWriteMsg`] bytes and apply them through persistent VT state.
 pub fn process_input(
-    mut stdout: MessageReader<TermStdOut>,
+    mut writes: MessageReader<VtWriteMsg>,
     mut commands: Commands,
     mut redraw_requested: MessageWriter<TermRedrawRequestedMsg>,
-    mut stdin_writer: MessageWriter<'_, TermStdIn>,
+    mut reply_writer: MessageWriter<'_, VtReplyMsg>,
+    output_policy: Res<BackgroundTerminalOutput>,
+    pending_cap: Res<PendingVtWriteCap>,
     q_terminfo: Query<TermInfo>,
+    mut q_parser: Query<(&mut VtParserState, &mut VtRenderState)>,
     q_lines: Query<(Entity, &VtLine, &VtRowTarget)>,
     q_rows: Query<(Entity, &VtRow)>,
-    q_fg: Query<Entity, With<VtForegroundProcess>>,
 ) {
     trace!("process_input");
-    let mut to_write: HashMap<Entity, Vec<&TermStdOut>> = HashMap::new();
-    for msg in stdout.read() {
-        to_write.entry(msg.term).or_default().push(&msg);
+    let mut to_write: HashMap<Entity, Vec<&VtWriteMsg>> = HashMap::new();
+    for msg in writes.read() {
+        to_write.entry(msg.term).or_default().push(msg);
     }
-    for (target_term, stdout_msgs) in to_write {
-        let terminfo = match q_terminfo.get(target_term) {
-            Ok(t) if t.size.cols > 0 && t.size.rows > 0 => t,
-            _ => {
-                let stdout_owned: Vec<TermStdOut> =
-                    stdout_msgs.iter().map(|w| (*w).clone()).collect();
-                commands
-                    .entity(target_term)
-                    .entry::<PendingStdOut>()
-                    .or_default()
-                    .and_modify(move |mut pending| pending.msgs.extend(stdout_owned));
-                continue;
-            }
+
+    for (target_term, messages) in to_write {
+        let Ok(terminfo) = q_terminfo.get(target_term) else {
+            warn!(?target_term, "discarding write to closed terminal");
+            continue;
+        };
+        if terminfo.size.cols == 0 || terminfo.size.rows == 0 {
+            let cap = pending_cap.0;
+            let messages = messages.into_iter().cloned().collect::<Vec<_>>();
+            commands
+                .entity(target_term)
+                .entry::<PendingVtWrites>()
+                .or_default()
+                .and_modify(move |mut pending| {
+                    for msg in messages {
+                        pending.push(msg, cap);
+                    }
+                });
+            continue;
+        }
+
+        let foreground = terminfo.fg_process.map(VtForegroundProcessTarget::process);
+        let admitted = messages.into_iter().filter(|msg| {
+            *output_policy == BackgroundTerminalOutput::Allow
+                || msg.from.is_none()
+                || foreground.is_none()
+                || msg.from == foreground
+        });
+        let Ok((mut parser, mut render_state)) = q_parser.get_mut(target_term) else {
+            warn!(?target_term, "terminal is missing parser state");
+            continue;
         };
 
-        let fg_job = terminfo.fg_process.and_then(|t| q_fg.get(t.process()).ok());
-        let fg_job = cq!(fg_job);
-
-        let writes = stdout_msgs
-            .iter()
-            .filter_map(|stdout| {
-                if stdout.from == fg_job && stdout.term == target_term {
-                    Some(&stdout.message)
-                } else {
-                    None
-                }
-            })
-            .flatten()
-            .collect::<Vec<_>>();
-
-        let mut grid = Grid::new(&terminfo, fg_job, &q_lines, &q_rows);
+        let mut grid = Grid::new(&terminfo, &q_lines, &q_rows);
         {
-            let mut performer = AnsiPerformer::new(&mut grid, &mut stdin_writer, target_term);
-            let mut stream = AnsiParser::new();
-            for write in writes {
-                if let Some(style) = write.style {
-                    performer.reset_style(style);
-                } else if write.reset_style {
-                    performer.reset_style(VtCellStyle::default());
-                }
-                for byte in write.text.as_bytes() {
-                    stream.advance(&mut performer, *byte);
+            let mut performer =
+                AnsiPerformer::new(&mut grid, &mut render_state, &mut reply_writer, target_term);
+            for msg in admitted {
+                for &byte in &msg.bytes {
+                    parser.0.advance(&mut performer, byte);
                 }
             }
         }

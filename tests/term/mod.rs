@@ -2,6 +2,7 @@ mod ansi;
 mod cursor;
 mod erase;
 mod hello_world;
+mod io_boundary;
 mod pending_input;
 mod pending_scroll;
 mod resize_hidpi;

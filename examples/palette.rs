@@ -17,7 +17,7 @@ fn main() {
             }),
             ..Default::default()
         }),
-        TerminalPlugin,
+        TerminalPlugin::default(),
     ));
     app.add_systems(Startup, setup);
     app.run();
@@ -101,9 +101,5 @@ fn setup(mut commands: Commands) {
     }
     out.push_str("\x1b[0m\n");
 
-    commands.write_message(TermStdOut {
-        term: term_id,
-        from: fg,
-        message: vec![TermWrite::new(out)],
-    });
+    commands.write_message(VtWriteMsg::from_peer(term_id, fg, out.into_bytes()));
 }

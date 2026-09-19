@@ -1,31 +1,30 @@
 //! Events which modify the virtual terminal display.
 use crate::prelude::*;
 
-/// Request to scroll a terminal viewport by `delta` lines.
-#[derive(Message, Debug, Clone, Reflect)]
-pub struct TermScrollMsg {
-    /// Target terminal entity.
-    pub term: Entity,
-    /// Signed line delta. Positive scrolls toward older content.
-    pub delta: isize,
+/// Ordered operation on a terminal viewport.
+#[derive(Message, Debug, Clone, Reflect, PartialEq, Eq)]
+pub enum TermViewportMsg {
+    /// Scroll by a signed line delta. Positive scrolls toward older content.
+    Scroll { term: Entity, delta: isize },
+    /// Jump to the bottom of the terminal buffer.
+    JumpBottom { term: Entity },
 }
-impl TermScrollMsg {
-    /// Construct a [`TermScrollMsg`].
-    pub fn new(term: Entity, delta: isize) -> Self {
-        Self { term, delta }
+impl TermViewportMsg {
+    /// Construct a scroll operation.
+    pub fn scroll(term: Entity, delta: isize) -> Self {
+        Self::Scroll { term, delta }
     }
-}
 
-/// Request to jump a terminal viewport to the bottom.
-#[derive(Message, Debug, Clone, Reflect)]
-pub struct TermJumpToBottomMsg {
+    /// Construct a jump-to-bottom operation.
+    pub fn jump_bottom(term: Entity) -> Self {
+        Self::JumpBottom { term }
+    }
+
     /// Target terminal entity.
-    pub term: Entity,
-}
-impl TermJumpToBottomMsg {
-    /// Construct a [`TermJumpToBottomMsg`].
-    pub fn new(term: Entity) -> Self {
-        Self { term }
+    pub fn term(&self) -> Entity {
+        match *self {
+            Self::Scroll { term, .. } | Self::JumpBottom { term } => term,
+        }
     }
 }
 

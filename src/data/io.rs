@@ -139,6 +139,11 @@ impl PendingVtWrites {
         self.bytes == 0
     }
 
+    pub(crate) fn take(&mut self) -> VecDeque<VtWriteMsg> {
+        self.bytes = 0;
+        std::mem::take(&mut self.chunks)
+    }
+
     pub(crate) fn push(&mut self, msg: VtWriteMsg, cap: usize) {
         self.bytes = self.bytes.saturating_add(msg.bytes.len());
         self.chunks.push_back(msg);
@@ -162,17 +167,53 @@ impl PendingVtWrites {
     }
 }
 
-/// Pending [`TermScrollMsg`] delta queued on a terminal whose state could not
-/// be resolved when the message was processed.
-#[derive(Component, Debug, Clone, Default, Reflect)]
-pub struct PendingTermScroll {
-    /// Accumulated signed line delta.
-    pub delta: isize,
+/// Maximum pending viewport-message storage per terminal, in bytes.
+#[derive(Resource, Clone, Copy, Debug, Reflect)]
+pub struct PendingTermViewportCap(pub usize);
+impl Default for PendingTermViewportCap {
+    fn default() -> Self {
+        Self(1024 * 1024)
+    }
 }
-impl PendingTermScroll {
-    /// Accumulate a signed line delta with saturating semantics.
-    pub fn add_delta(&mut self, new: isize) {
-        self.delta = self.delta.saturating_add(new);
+
+/// Ordered viewport messages waiting for terminal processing.
+#[derive(Component, Debug, Clone, Default, Reflect)]
+pub struct PendingTermViewportMsgs {
+    messages: VecDeque<TermViewportMsg>,
+    bytes: usize,
+}
+impl PendingTermViewportMsgs {
+    /// Queued messages in FIFO order.
+    pub fn messages(&self) -> &VecDeque<TermViewportMsg> {
+        &self.messages
+    }
+
+    /// Approximate inline storage used by queued messages.
+    pub fn len_bytes(&self) -> usize {
+        self.bytes
+    }
+
+    pub(crate) fn push(&mut self, message: TermViewportMsg, cap: usize) {
+        let message_bytes = std::mem::size_of::<TermViewportMsg>();
+        self.messages.push_back(message);
+        self.bytes = self.bytes.saturating_add(message_bytes);
+
+        let mut evicted = 0;
+        while self.bytes > cap {
+            let Some(_) = self.messages.pop_front() else {
+                break;
+            };
+            self.bytes = self.bytes.saturating_sub(message_bytes);
+            evicted += 1;
+        }
+        if evicted > 0 {
+            warn!(evicted, cap, "evicted pending terminal viewport messages");
+        }
+    }
+
+    pub(crate) fn take(&mut self) -> VecDeque<TermViewportMsg> {
+        self.bytes = 0;
+        std::mem::take(&mut self.messages)
     }
 }
 

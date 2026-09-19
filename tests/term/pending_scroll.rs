@@ -1,75 +1,191 @@
 use crate::prelude::*;
 
-/// Holds the bare entity spawned in `Startup` so each step's system can
-/// look it up by id.
+/// Holds the live, not-yet-ready terminal spawned in `Startup`.
 #[derive(Resource)]
 struct Target(Entity);
 
-/// Verifies the pending-scroll retry path end to end:
-///
-/// 1. A `TermScrollMsg` written against an entity that lacks
-///    `Terminal` and `VtSize` causes `apply_scroll` to attach a
-///    `PendingTermScroll` carrying the requested delta rather than
-///    dropping the message.
-/// 2. Once the target gains the prerequisites for `TermInfo` to
-///    resolve, `drain_pending` removes the component and re-emits
-///    the original message.
-///
-/// The asserted invariant is drainage rather than the resulting
-/// `VtScrollPos`: with a freshly-attached terminal that has no
-/// scrollback, the clamp range collapses to `[0, 0]` and the scroll
-/// is a no-op regardless of `delta`. The actual scroll-position math
-/// is covered elsewhere.
 #[test]
-fn pending_scroll_attach_and_drain() {
+fn closed_entity_does_not_retain_pending_scroll() {
     let mut app = get_test_app();
 
     app.add_systems(Startup, |mut commands: Commands| {
         let target = commands.spawn_empty().id();
         commands.insert_resource(Target(target));
-        commands.write_message(TermScrollMsg::new(target, 5));
+        commands.write_message(TermViewportMsg::scroll(target, 5));
     });
-
-    // Step 0: wait for `apply_scroll` to attach `PendingTermScroll`,
-    // assert the queued delta, then make the target resolvable and
-    // advance to step 1.
     app.add_step(
         0,
         |target: Res<Target>,
-         q_pending: Query<&PendingTermScroll>,
+         q_pending: Query<&PendingTermViewportMsgs>,
+         mut commands: Commands| {
+            r!(commands.assert(
+                !q_pending.contains(target.0),
+                "closed entity retained pending terminal scroll",
+            ));
+            commands.write_message(AppExit::Success);
+        },
+    );
+
+    assert!(app.run().is_success());
+}
+
+#[test]
+fn viewport_messages_retain_cross_operation_order() {
+    let mut app = get_test_app();
+
+    app.add_systems(Startup, |mut commands: Commands| {
+        let target = commands.spawn(Terminal).id();
+        commands.insert_resource(Target(target));
+        commands.write_message(TermViewportMsg::jump_bottom(target));
+        commands.write_message(TermViewportMsg::scroll(target, 5));
+        commands.write_message(TermViewportMsg::scroll(target, -5));
+    });
+    app.add_step(
+        0,
+        |target: Res<Target>,
+         q_pending: Query<&PendingTermViewportMsgs>,
+         mut commands: Commands| {
+            let Ok(pending) = q_pending.get(target.0) else {
+                return;
+            };
+            let expected = [
+                TermViewportMsg::jump_bottom(target.0),
+                TermViewportMsg::scroll(target.0, 5),
+                TermViewportMsg::scroll(target.0, -5),
+            ];
+            r!(commands.assert(
+                pending.messages().iter().eq(expected.iter()),
+                format!("viewport message order changed: {:?}", pending.messages()),
+            ));
+            commands.write_message(AppExit::Success);
+        },
+    );
+
+    assert!(app.run().is_success());
+}
+
+#[test]
+fn pending_viewport_messages_evict_oldest_at_cap() {
+    let mut app = get_test_app();
+    app.insert_resource(PendingTermViewportCap(
+        std::mem::size_of::<TermViewportMsg>(),
+    ));
+
+    app.add_systems(Startup, |mut commands: Commands| {
+        let target = commands.spawn(Terminal).id();
+        commands.insert_resource(Target(target));
+        commands.write_message(TermViewportMsg::scroll(target, 1));
+        commands.write_message(TermViewportMsg::scroll(target, 2));
+    });
+    app.add_step(
+        0,
+        |target: Res<Target>,
+         q_pending: Query<&PendingTermViewportMsgs>,
+         mut commands: Commands| {
+            let Ok(pending) = q_pending.get(target.0) else {
+                return;
+            };
+            r!(commands.assert(
+                pending.messages().front() == Some(&TermViewportMsg::scroll(target.0, 2)),
+                format!(
+                    "expected oldest viewport message eviction: {:?}",
+                    pending.messages()
+                ),
+            ));
+            r!(commands.assert(
+                pending.len_bytes() == std::mem::size_of::<TermViewportMsg>(),
+                "pending viewport storage exceeded its cap",
+            ));
+            commands.write_message(AppExit::Success);
+        },
+    );
+
+    assert!(app.run().is_success());
+}
+
+#[test]
+fn jump_to_bottom_waits_for_terminal_readiness() {
+    let mut app = get_test_app();
+
+    app.add_systems(Startup, |mut commands: Commands| {
+        let target = commands.spawn((Terminal, VtScrollPos(5))).id();
+        commands.insert_resource(Target(target));
+        commands.write_message(TermViewportMsg::jump_bottom(target));
+    });
+    app.add_step(
+        0,
+        |target: Res<Target>,
+         q_pending: Query<&PendingTermViewportMsgs>,
          mut commands: Commands,
          mut next: ResMut<NextState<Step>>| {
             let Ok(pending) = q_pending.get(target.0) else {
                 return;
             };
             r!(commands.assert(
-                pending.delta == 5,
-                format!("expected pending delta 5, got {}", pending.delta),
+                pending.messages().front() == Some(&TermViewportMsg::jump_bottom(target.0)),
+                "jump-to-bottom was not retained while pending",
             ));
             commands
                 .entity(target.0)
-                .insert((Terminal, VtSize { cols: 80, rows: 24 }));
+                .insert(VtSize { cols: 80, rows: 24 });
+            next.set(Step(1));
+        },
+    );
+    app.add_step(
+        1,
+        |target: Res<Target>, q_pos: Query<&VtScrollPos>, mut commands: Commands| {
+            let Ok(pos) = q_pos.get(target.0) else {
+                return;
+            };
+            if pos.0 == 0 {
+                commands.write_message(AppExit::Success);
+            }
+        },
+    );
+
+    assert!(app.run().is_success());
+}
+
+#[test]
+fn pending_scroll_attach_and_drain() {
+    let mut app = get_test_app();
+
+    app.add_systems(Startup, |mut commands: Commands| {
+        let target = commands.spawn(Terminal).id();
+        commands.insert_resource(Target(target));
+        commands.write_message(TermViewportMsg::scroll(target, 5));
+    });
+
+    app.add_step(
+        0,
+        |target: Res<Target>,
+         q_pending: Query<&PendingTermViewportMsgs>,
+         mut commands: Commands,
+         mut next: ResMut<NextState<Step>>| {
+            let Ok(pending) = q_pending.get(target.0) else {
+                return;
+            };
+            r!(commands.assert(
+                pending.messages().front() == Some(&TermViewportMsg::scroll(target.0, 5)),
+                format!("expected pending scroll 5, got {:?}", pending.messages()),
+            ));
+            commands
+                .entity(target.0)
+                .insert(VtSize { cols: 80, rows: 24 });
             next.set(Step(1));
         },
     );
 
-    // Step 1: poll until `drain_pending` removes the component, then
-    // exit. We do not assert on `VtScrollPos`: a terminal with no
-    // scrollback rows clamps any delta to zero, so drainage is the
-    // only visible signal that the pending message was consumed.
     app.add_step(
         1,
         |target: Res<Target>,
-         q_pending: Query<&PendingTermScroll>,
+         q_pending: Query<&PendingTermViewportMsgs>,
          q_term: Query<TermInfo>,
          mut commands: Commands| {
             if q_pending.contains(target.0) {
                 return;
             }
-            // Ensure the target itself resolved as a terminal before
-            // declaring drainage successful; otherwise an early exit
-            // could mask the component never having been there.
-            if q_term.get(target.0).is_err() {
+            if !q_term.get(target.0).is_ok_and(|term| term.ready.is_some()) {
                 return;
             }
             commands.write_message(AppExit::Success);

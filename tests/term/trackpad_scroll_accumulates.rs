@@ -5,11 +5,11 @@
 //! events per gesture, each with `|y|` well under one line of height.
 //! The original `on_scroll` converted to lines (`y / line_height`)
 //! and cast to `isize`, which truncated every event to `0` and
-//! produced `TermScrollMsg { delta: 0 }` -- no movement, ever.
+//! produced `TermViewportMsg::Scroll { delta: 0 }` -- no movement, ever.
 //!
 //! Fix (`src/systems.rs`): a [`VtScrollAccumulator`] component on
 //! the `VtUi` carries the fractional remainder across events; only
-//! emit a [`TermScrollMsg`] when a whole line has accumulated. A
+//! emit a [`TermViewportMsg`] when a whole line has accumulated. A
 //! [`VtScrollSensitivity`] resource scales line vs. pixel deltas.
 //!
 //! These tests synthesise `Pointer<Scroll>` events directly via
@@ -122,7 +122,7 @@ fn setup_app() -> App {
 /// ```
 ///
 /// After 10 events the accumulator has crossed two whole-line
-/// boundaries (at events 4 and 8), so two `TermScrollMsg { delta:
+/// boundaries (at events 4 and 8), so two `TermViewportMsg::Scroll { delta:
 /// -1 }` messages have been emitted and `VtScrollPos` should be 2
 /// (scrolling *up* increases `scroll_pos` via
 /// `saturating_sub_signed(-1)`). The leftover remainder is `-0.5`.
@@ -177,7 +177,7 @@ fn pixel_scrolls_accumulate_to_whole_line_moves() {
         },
     );
 
-    // Step 2: wait a few frames for the last `TermScrollMsg`
+    // Step 2: wait a few frames for the last `TermViewportMsg`
     // emissions to drain through `apply_scroll`, then assert the
     // resulting position and accumulator remainder.
     app.add_step(

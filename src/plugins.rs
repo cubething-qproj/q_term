@@ -58,14 +58,14 @@ impl Plugin for TerminalPlugin {
         use crate::systems::term::*;
         app.add_message::<VtReplyMsg>();
         app.add_message::<VtWriteMsg>();
-        app.add_message::<TermScrollMsg>();
-        app.add_message::<TermJumpToBottomMsg>();
+        app.add_message::<TermViewportMsg>();
         app.add_message::<TermReflowMsg>();
         app.add_message::<TermRedrawRequestedMsg>();
 
         app.init_resource::<VtScrollSensitivity>();
         app.init_resource::<BackgroundTerminalOutput>();
         app.init_resource::<PendingVtWriteCap>();
+        app.init_resource::<PendingTermViewportCap>();
 
         app.configure_sets(
             self.update_schedule,
@@ -82,8 +82,8 @@ impl Plugin for TerminalPlugin {
             (
                 (update_font, update_char_width, resize).in_set(TerminalSystems::Measure),
                 (
-                    cleanup_removed_terminals,
-                    drain_pending,
+                    queue_input,
+                    queue_viewport_input,
                     process_input,
                     apply_scroll,
                     apply_reflow,

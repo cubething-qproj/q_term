@@ -78,8 +78,8 @@ fn main() {
         // ... but writing lines is probably what you're looking for.
         commands.write_message(writeln(term_id, fg, LONG_LINE));
 
-        // commands.write_message(TermScrollMsg::new(term_id, 10));
-        // commands.write_message(TermScrollMsg::new(term_id, -5));
+        // commands.write_message(TermViewportMsg::scroll(term_id, 10));
+        // commands.write_message(TermViewportMsg::scroll(term_id, -5));
     });
     app.add_systems(PostUpdate, |mut ran: Local<bool>| {
         if *ran {

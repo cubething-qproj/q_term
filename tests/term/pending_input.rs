@@ -16,6 +16,17 @@ fn pending_input_attach_and_drain() {
         commands.insert_resource(TestTerm { term: target, fg });
         commands.write_message(write(target, fg, "Hello, world!"));
     });
+    app.add_systems(
+        Update,
+        (|target: Res<Target>, mut commands: Commands, mut sent: Local<bool>| {
+            if !*sent {
+                commands.write_message(VtWriteMsg::new(target.0, b"new".to_vec()));
+                *sent = true;
+            }
+        })
+        .in_set(TerminalSystems::Input)
+        .run_if(in_state(Step(1))),
+    );
 
     app.add_step(
         0,
@@ -65,8 +76,11 @@ fn pending_input_attach_and_drain() {
             ));
             let (_, line) = &lines[0];
             r!(commands.assert(
-                line.as_string() == "Hello, world!",
-                format!("expected \"Hello, world!\", got {:?}", line.as_string()),
+                line.as_string() == "Hello, world!new",
+                format!(
+                    "expected pending bytes before new ingress, got {:?}",
+                    line.as_string()
+                ),
             ));
             commands.write_message(AppExit::Success);
         },

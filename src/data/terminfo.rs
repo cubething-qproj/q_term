@@ -14,6 +14,7 @@ pub struct TermInfo {
     pub line_target: &'static VtLineTarget,
     pub viewport: &'static VtViewport,
     pub size: &'static VtSize,
+    pub ready: Option<&'static VtReady>,
     pub scroll_pos: &'static VtScrollPos,
     pub tab_stop: &'static VtTabStop,
     pub fg_process: Option<&'static VtForegroundProcessTarget>,

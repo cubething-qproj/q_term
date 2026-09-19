@@ -272,7 +272,7 @@ pub(crate) fn on_scroll(
 
     let whole_i = whole as isize;
     if whole_i != 0 {
-        commands.write_message(TermScrollMsg::new(ui.target(), whole_i));
+        commands.write_message(TermViewportMsg::scroll(ui.target(), whole_i));
     }
 }
 

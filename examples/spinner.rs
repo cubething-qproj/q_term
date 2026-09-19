@@ -35,7 +35,7 @@ fn main() {
             }),
             ..default()
         }),
-        TerminalPlugin,
+        TerminalPlugin::default(),
     ));
     app.add_systems(Startup, setup);
     app.add_systems(Update, tick);
@@ -78,13 +78,10 @@ fn tick(time: Res<Time>, mut s: ResMut<Spinner>, mut commands: Commands) {
         // `\r` returns to col 0; `\x1b[2K` wipes whatever was on the
         // previous frame so shorter labels don't leave a tail behind.
         debug!("update frame");
-        commands.write_message(TermStdOut {
-            term: s.term_id,
-            from: s.fg,
-            message: vec![TermWrite::new(format!(
-                "\r\x1b[2K{} {}",
-                FRAMES[s.frame], LABELS[s.label]
-            ))],
-        });
+        commands.write_message(VtWriteMsg::from_peer(
+            s.term_id,
+            s.fg,
+            format!("\r\x1b[2K{} {}", FRAMES[s.frame], LABELS[s.label]).into_bytes(),
+        ));
     }
 }

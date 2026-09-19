@@ -4,112 +4,108 @@ use bevy::platform::collections::HashMap;
 
 use crate::prelude::*;
 
-/// Re-emit pending input/scroll messages once their target resolves.
-///
-/// Iterates entities carrying [`PendingTermInput`] or
-/// [`PendingTermScroll`]. For each, attempts to resolve the target's
-/// [`TermInfo`]; on success, removes the pending component and
-/// re-emits the corresponding [`TermStdOut`] / [`TermScrollMsg`].
-/// Entities whose [`TermInfo`] is still unresolvable retain their
-/// pending component and are retried next frame.
-///
-/// Registered as the first system in [`TerminalSystems::Process`] so
-/// the re-emitted messages are observed by `process_input` and
-/// `apply_scroll` later in the same chain. Re-emits use
-/// [`MessageWriter`] system params; entity cleanup uses [`Commands`].
-pub fn drain_pending(
+/// Queue terminal byte ingress in one FIFO per live terminal.
+pub fn queue_input(
+    mut writes: MessageReader<VtWriteMsg>,
     mut commands: Commands,
-    mut input: MessageWriter<TermStdOut>,
-    mut scroll: MessageWriter<TermScrollMsg>,
-    q_terminfo: Query<TermInfo>,
-    q_pending_input: Query<(Entity, &PendingStdOut)>,
-    q_pending_scroll: Query<(Entity, &PendingTermScroll)>,
+    pending_cap: Res<PendingVtWriteCap>,
+    q_terminals: Query<(), With<Terminal>>,
+    q_ready: Query<(), With<VtReady>>,
 ) {
-    trace!("drain_pending");
-    for (entity, pending) in &q_pending_input {
-        if q_terminfo.get(entity).is_ok() {
-            commands.entity(entity).remove::<PendingStdOut>();
-            for msg in pending.msgs.iter() {
-                input.write(msg.clone());
-            }
+    let mut to_queue: HashMap<Entity, Vec<VtWriteMsg>> = HashMap::new();
+    for msg in writes.read() {
+        if q_terminals.contains(msg.term) {
+            to_queue.entry(msg.term).or_default().push(msg.clone());
+        } else {
+            warn!(term = ?msg.term, "discarding write to closed terminal");
         }
     }
-    for (entity, pending) in &q_pending_scroll {
-        if q_terminfo.get(entity).is_ok() {
-            commands.entity(entity).remove::<PendingTermScroll>();
-            scroll.write(TermScrollMsg {
-                term: entity,
-                delta: pending.delta,
+    for (term, messages) in to_queue {
+        let cap = if q_ready.contains(term) {
+            usize::MAX
+        } else {
+            pending_cap.0
+        };
+        commands
+            .entity(term)
+            .entry::<PendingVtWrites>()
+            .or_default()
+            .and_modify(move |mut pending| {
+                for msg in messages {
+                    pending.push(msg, cap);
+                }
             });
-        }
     }
 }
 
-/// Drain [`TermStdOut`] writes and apply them via the ANSI parser.
-///
-/// Looks up each message's target [`TermInfo`], builds a [`Grid`],
-/// runs the parser/performer, then syncs the grid back into the world.
-/// Targets whose [`TermInfo`] cannot be resolved this frame have their
-/// pending writes attached as a [`PendingTermInput`] component on the
-/// target; `drain_pending` re-emits them once the target resolves.
-/// Emits [`TermRedrawRequestedMsg`] per affected target.
+/// Queue viewport ingress in one FIFO per live terminal.
+pub fn queue_viewport_input(
+    mut messages: MessageReader<TermViewportMsg>,
+    mut commands: Commands,
+    pending_cap: Res<PendingTermViewportCap>,
+    q_terminals: Query<(), With<Terminal>>,
+) {
+    let mut to_queue: HashMap<Entity, Vec<TermViewportMsg>> = HashMap::new();
+    for msg in messages.read() {
+        let term = msg.term();
+        if q_terminals.contains(term) {
+            to_queue.entry(term).or_default().push(msg.clone());
+        } else {
+            warn!(?term, "discarding viewport message for closed terminal");
+        }
+    }
+    for (term, messages) in to_queue {
+        let cap = pending_cap.0;
+        commands
+            .entity(term)
+            .entry::<PendingTermViewportMsgs>()
+            .or_default()
+            .and_modify(move |mut pending| {
+                for message in messages {
+                    pending.push(message, cap);
+                }
+            });
+    }
+}
+
+/// Apply queued terminal bytes through persistent VT state.
 pub fn process_input(
-    mut stdout: MessageReader<TermStdOut>,
     mut commands: Commands,
     mut redraw_requested: MessageWriter<TermRedrawRequestedMsg>,
-    mut stdin_writer: MessageWriter<'_, TermStdIn>,
+    mut reply_writer: MessageWriter<'_, VtReplyMsg>,
+    output_policy: Res<BackgroundTerminalOutput>,
     q_terminfo: Query<TermInfo>,
+    mut q_pending: Query<(Entity, &mut PendingVtWrites), With<VtReady>>,
+    mut q_parser: Query<(&mut VtParserState, &mut VtRenderState)>,
     q_lines: Query<(Entity, &VtLine, &VtRowTarget)>,
     q_rows: Query<(Entity, &VtRow)>,
-    q_fg: Query<Entity, With<VtForegroundProcess>>,
 ) {
     trace!("process_input");
-    let mut to_write: HashMap<Entity, Vec<&TermStdOut>> = HashMap::new();
-    for msg in stdout.read() {
-        to_write.entry(msg.term).or_default().push(&msg);
-    }
-    for (target_term, stdout_msgs) in to_write {
-        let terminfo = match q_terminfo.get(target_term) {
-            Ok(t) if t.size.cols > 0 && t.size.rows > 0 => t,
-            _ => {
-                let stdout_owned: Vec<TermStdOut> =
-                    stdout_msgs.iter().map(|w| (*w).clone()).collect();
-                commands
-                    .entity(target_term)
-                    .entry::<PendingStdOut>()
-                    .or_default()
-                    .and_modify(move |mut pending| pending.msgs.extend(stdout_owned));
-                continue;
-            }
+    for (target_term, mut pending) in &mut q_pending {
+        let Ok(terminfo) = q_terminfo.get(target_term) else {
+            continue;
+        };
+        let messages = pending.take();
+        commands.entity(target_term).remove::<PendingVtWrites>();
+        let foreground = terminfo.fg_process.map(VtForegroundProcessTarget::process);
+        let admitted = messages.into_iter().filter(|msg| {
+            *output_policy == BackgroundTerminalOutput::Allow
+                || msg.from.is_none()
+                || foreground.is_none()
+                || msg.from == foreground
+        });
+        let Ok((mut parser, mut render_state)) = q_parser.get_mut(target_term) else {
+            warn!(?target_term, "terminal is missing parser state");
+            continue;
         };
 
-        let fg_job = terminfo.fg_process.and_then(|t| q_fg.get(t.process()).ok());
-        let fg_job = cq!(fg_job);
-
-        let writes = stdout_msgs
-            .iter()
-            .filter_map(|stdout| {
-                if stdout.from == fg_job && stdout.term == target_term {
-                    Some(&stdout.message)
-                } else {
-                    None
-                }
-            })
-            .flatten()
-            .collect::<Vec<_>>();
-
-        let mut grid = Grid::new(&terminfo, fg_job, &q_lines, &q_rows);
+        let mut grid = Grid::new(&terminfo, &q_lines, &q_rows);
         {
-            let mut performer = AnsiPerformer::new(&mut grid, &mut stdin_writer, target_term);
-            let mut stream = AnsiParser::new();
-            for write in writes {
-                if let Some(style) = write.style {
-                    performer.reset_style(style);
-                } else if write.reset_style {
-                    performer.reset_style(VtCellStyle::default());
-                }
-                for byte in write.text.as_bytes() {
-                    stream.advance(&mut performer, *byte);
+            let mut performer =
+                AnsiPerformer::new(&mut grid, &mut render_state, &mut reply_writer, target_term);
+            for msg in admitted {
+                for byte in msg.bytes {
+                    parser.0.advance(&mut performer, byte);
                 }
             }
         }
@@ -118,58 +114,39 @@ pub fn process_input(
     }
 }
 
-/// Apply [`TermScrollMsg`] / [`TermJumpToBottomMsg`] to viewport state.
-///
-/// For each scroll, computes the clamped scroll offset and writes a
-/// new [`VtScrollPos`] onto the target. Jumps unconditionally reset
-/// the scroll position to the bottom. Emits a
-/// [`TermRedrawRequestedMsg`] per affected target.
+/// Apply queued viewport messages in FIFO order.
 pub fn apply_scroll(
-    mut scrolls: MessageReader<TermScrollMsg>,
-    mut jumps: MessageReader<TermJumpToBottomMsg>,
     mut commands: Commands,
     mut redraw_requested: MessageWriter<TermRedrawRequestedMsg>,
     q_terminfo: Query<TermInfo>,
+    mut q_pending: Query<(Entity, &mut PendingTermViewportMsgs), With<VtReady>>,
     q_rows: Query<(Entity, &VtRow)>,
     q_rowtargets: Query<&VtRowTarget, With<VtLine>>,
 ) {
     trace!("apply_scroll");
-    for msg in scrolls.read() {
-        let terminfo = match q_terminfo.get(msg.term) {
-            Ok(t) => t,
-            Err(_) => {
-                let delta = msg.delta;
-                commands
-                    .entity(msg.term)
-                    .entry::<PendingTermScroll>()
-                    .or_default()
-                    .and_modify(move |mut pending| {
-                        pending.add_delta(delta);
-                    });
-                continue;
-            }
+    for (term, mut pending) in &mut q_pending {
+        let Ok(terminfo) = q_terminfo.get(term) else {
+            continue;
         };
+        let messages = pending.take();
+        commands.entity(term).remove::<PendingTermViewportMsgs>();
         let num_rows = terminfo
             .rows(&q_rowtargets, &q_rows)
             .collect::<Vec<_>>()
             .len();
-        let pos = terminfo
-            .scroll_pos
-            .saturating_sub_signed(msg.delta)
-            .clamp(0, num_rows.saturating_sub(terminfo.size.rows));
-        if pos != terminfo.scroll_pos.0 {
-            commands.entity(terminfo.id).insert(VtScrollPos(pos));
-            redraw_requested.write(TermRedrawRequestedMsg::new(msg.term));
+        let max = num_rows.saturating_sub(terminfo.size.rows);
+        let mut pos = terminfo.scroll_pos.0;
+        for message in messages {
+            pos = match message {
+                TermViewportMsg::Scroll { delta, .. } => {
+                    pos.saturating_sub_signed(delta).clamp(0, max)
+                }
+                TermViewportMsg::JumpBottom { .. } => 0,
+            };
         }
-    }
-    for msg in jumps.read() {
-        let terminfo = match q_terminfo.get(msg.term) {
-            Ok(t) => t,
-            Err(_) => continue,
-        };
-        if terminfo.scroll_pos.0 != 0 {
-            commands.entity(msg.term).insert(VtScrollPos(0));
-            redraw_requested.write(TermRedrawRequestedMsg::new(msg.term));
+        if pos != terminfo.scroll_pos.0 {
+            commands.entity(term).insert(VtScrollPos(pos));
+            redraw_requested.write(TermRedrawRequestedMsg::new(term));
         }
     }
 }
@@ -237,15 +214,23 @@ pub fn apply_reflow(
                 res.append(&mut rows);
                 res
             });
+        let scroll_pos = terminfo
+            .scroll_pos
+            .0
+            .min(rows.len().saturating_sub(terminfo.size.rows));
+        if scroll_pos != terminfo.scroll_pos.0 {
+            commands.entity(target).insert(VtScrollPos(scroll_pos));
+        }
         let row_ids = rows
             .into_iter()
             .rev()
-            .skip(terminfo.scroll_pos.0)
+            .skip(scroll_pos)
             .take(terminfo.size.rows)
             .collect::<Vec<_>>();
         for id in row_ids.into_iter().rev() {
             commands.entity(id).insert(VtViewportRow::new(terminfo.id));
         }
+        commands.entity(target).insert(VtReady);
         redraw_requested.write(TermRedrawRequestedMsg::new(target));
     }
 }

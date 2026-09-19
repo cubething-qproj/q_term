@@ -1,10 +1,10 @@
-//! Input and output channels (to/from [`Process`])
+//! Input and output channels for virtual terminals.
 
 use std::collections::VecDeque;
 
 use crate::prelude::*;
 
-/// How the [`Terminal`] sends information to the [`Shell`].
+/// How the [`Terminal`] sends information to an attached shell.
 /// Canonical mode is the default. It sends lines on submit.
 /// Raw mode sends inputs unbuffered. This is useful for TUIs like vim or htop.
 #[derive(Component, Reflect, Debug)]
@@ -21,126 +21,203 @@ impl Default for LineDiscipline {
 }
 
 /// Keystrokes et al. sent to the [`Terminal`] which must be interpreted by
-/// the [`LineDiscipline`]
+/// the [`LineDiscipline`].
 #[derive(Debug, Clone, Reflect)]
 #[non_exhaustive]
 pub enum TermInput {
     /// Pipe some text to the line discipline.
     Text(String),
     /// Clear the canonical mode buffer.
-    /// Typically submitted via newline (\n)
+    /// Typically submitted via newline (`\n`).
     Submit,
-    /// Backspace
+    /// Backspace.
     Erase,
-    /// End of file.
-    /// Typically submitted via (^D)
+    /// End of file, typically submitted via Ctrl-D.
     Eof,
-    // etc
 }
 
 /// Sends a message to the [`Terminal`], to be interpreted by the
-/// [`LineDiscipline`]
+/// [`LineDiscipline`].
 #[derive(Message, Debug, Clone, Reflect)]
 pub struct TermInputMsg {
     pub term: Entity,
     pub input: TermInput,
 }
 
-// TODO: This API needs to be completely re-thought.
-// Where do we translate from span-based to ANSI?
-// Probably want to keep the span-based writes _ONLY_ at
-// the consumer level _if that._
-
-/// Bytes flowing toward a running process. An external consumer such as
-/// a shell determines where it goes.
+/// Raw bytes addressed to a virtual terminal.
 #[derive(Message, Debug, Clone, Reflect)]
-pub struct TermStdIn {
-    /// Source [`Terminal`]
+pub struct VtWriteMsg {
+    /// Target terminal.
     pub term: Entity,
-    /// Message sink -- the targeted job
-    pub target: Entity,
-    /// Raw bytes. Interpretation left to the consumer.
-    pub message: String,
+    /// Optional source. `None` identifies a terminal-native direct write.
+    ///
+    /// This identity is intentionally opaque. While this is almost certainly
+    /// from a process, `q_term` cannot guarantee the source of a write.
+    pub from: Option<Entity>,
+    /// Bytes to pass to the terminal's persistent VT parser.
+    pub bytes: Vec<u8>,
 }
-impl TermStdIn {
-    /// Construct a [`TermStdIn`] reply from a byte slice.
-    pub fn new(term: Entity, target: Entity, msg: impl ToString) -> Self {
+impl VtWriteMsg {
+    /// Construct a direct terminal write.
+    pub fn new(term: Entity, bytes: impl Into<Vec<u8>>) -> Self {
         Self {
             term,
-            target,
-            message: msg.to_string(),
+            from: None,
+            bytes: bytes.into(),
         }
     }
-}
 
-/// Bytes flowing from a program into the [`Terminal`].
-/// NOTE: There is no equivalent for StdErr.
-#[derive(Message, Debug, Clone, Reflect)]
-pub struct TermStdOut {
-    /// Source [`Terminal`]
-    pub term: Entity,
-    /// Source program / etc
-    pub from: Entity,
-    /// Text spans to push to the terminal
-    pub message: Vec<TermWrite>,
-}
-
-/// Pending writes queued on a term whose
-/// [`TermInfo`] could not be resolved when the message was
-/// processed.
-///
-/// Producers attach this component instead of dropping the
-/// message; the `drain_pending` system re-emits a [`TermStdOut`]
-/// once the term's prerequisites resolve. Multiple queued
-/// writes against the same term accumulate in `writes` to
-/// preserve write order.
-///
-/// The queue is bounded by [`PendingTermInputCap`] total
-/// `TermWrite::text` bytes. When a push would exceed the cap,
-/// oldest whole spans are evicted FIFO until the new content fits;
-/// the producer-side helper [`PendingTermInput::push_writes`]
-/// enforces this and emits a single `warn!` per call summarising
-/// any eviction.
-#[derive(Component, Debug, Clone, Reflect)]
-pub struct PendingStdOut {
-    pub msgs: VecDeque<TermStdOut>,
-}
-impl Default for PendingStdOut {
-    fn default() -> Self {
+    /// Construct a write.
+    ///
+    /// This identity is intentionally opaque. While this is almost certainly
+    /// from a process, `q_term` cannot guarantee the source of a write.
+    pub fn from_peer(term: Entity, from: Entity, bytes: impl Into<Vec<u8>>) -> Self {
         Self {
-            msgs: VecDeque::with_capacity(1024),
+            term,
+            from: Some(from),
+            bytes: bytes.into(),
         }
     }
 }
 
-/// Pending [`TermScrollMsg`] delta queued on a term whose
-/// [`TermInfo`] could not be resolved when the message was
-/// processed.
-///
-/// Producers attach this component instead of dropping the
-/// message; the `drain_pending` system re-emits a [`TermScrollMsg`]
-/// once the term's prerequisites resolve. Multiple queued
-/// scrolls against the same term accumulate in `delta`.
-#[derive(Component, Debug, Clone, Default, Reflect)]
-pub struct PendingTermScroll {
-    /// Accumulated signed line delta. Re-emitted as the `delta`
-    /// of a [`TermScrollMsg`] when drained.
-    pub delta: isize,
+/// Bytes generated by the VT protocol in response to terminal ingress.
+#[derive(Message, Debug, Clone, Reflect)]
+pub struct VtReplyMsg {
+    /// Source terminal.
+    pub term: Entity,
+    /// Protocol reply bytes.
+    pub bytes: Vec<u8>,
 }
-impl PendingTermScroll {
-    /// Accumulate a signed line delta with saturating semantics.
-    /// Use this rather than `delta += new` to avoid overflow on
-    /// pathological pending accumulations.
-    pub fn add_delta(&mut self, new: isize) {
-        self.delta = self.delta.saturating_add(new);
+impl VtReplyMsg {
+    /// Construct a reply from a byte-like value.
+    pub fn new(term: Entity, bytes: impl Into<Vec<u8>>) -> Self {
+        Self {
+            term,
+            bytes: bytes.into(),
+        }
     }
 }
 
-/// This struct hold all the necessary data to spawn a terminal text span in
-/// a convenient format. In order to facilitate text wrapping and ANSI
-/// support, [`VtLine`] data must contain the entire logical line, while the
-/// text spans must be spawned separately. This struct is designed to help
-/// with the API by making virtual text spans easier to author.
+/// Policy for writes carrying a non-foreground source peer.
+#[derive(Resource, Clone, Copy, Debug, Default, Reflect, PartialEq, Eq)]
+pub enum BackgroundTerminalOutput {
+    /// Render every write addressed to the terminal.
+    #[default]
+    Allow,
+    /// Suppress writes whose source differs from the terminal's foreground peer.
+    Suppress,
+}
+
+/// Maximum number of pending ingress bytes retained per terminal.
+#[derive(Resource, Clone, Copy, Debug, Reflect)]
+pub struct PendingVtWriteCap(pub usize);
+impl Default for PendingVtWriteCap {
+    fn default() -> Self {
+        Self(1024 * 1024)
+    }
+}
+
+/// Pending byte chunks for a terminal whose size or UI is not ready.
+#[derive(Component, Debug, Clone, Default, Reflect)]
+pub struct PendingVtWrites {
+    chunks: VecDeque<VtWriteMsg>,
+    bytes: usize,
+}
+impl PendingVtWrites {
+    /// Queued writes in FIFO order.
+    pub fn chunks(&self) -> &VecDeque<VtWriteMsg> {
+        &self.chunks
+    }
+
+    /// Total queued payload bytes.
+    pub fn len(&self) -> usize {
+        self.bytes
+    }
+
+    /// Whether no payload bytes are queued.
+    pub fn is_empty(&self) -> bool {
+        self.bytes == 0
+    }
+
+    pub(crate) fn take(&mut self) -> VecDeque<VtWriteMsg> {
+        self.bytes = 0;
+        std::mem::take(&mut self.chunks)
+    }
+
+    pub(crate) fn push(&mut self, msg: VtWriteMsg, cap: usize) {
+        self.bytes = self.bytes.saturating_add(msg.bytes.len());
+        self.chunks.push_back(msg);
+
+        let mut evicted_chunks = 0;
+        let mut evicted_bytes = 0;
+        while self.bytes > cap {
+            let Some(evicted) = self.chunks.pop_front() else {
+                break;
+            };
+            evicted_chunks += 1;
+            evicted_bytes += evicted.bytes.len();
+            self.bytes = self.bytes.saturating_sub(evicted.bytes.len());
+        }
+        if evicted_chunks > 0 {
+            warn!(
+                evicted_chunks,
+                evicted_bytes, cap, "evicted pending terminal ingress"
+            );
+        }
+    }
+}
+
+/// Maximum pending viewport-message storage per terminal, in bytes.
+#[derive(Resource, Clone, Copy, Debug, Reflect)]
+pub struct PendingTermViewportCap(pub usize);
+impl Default for PendingTermViewportCap {
+    fn default() -> Self {
+        Self(1024 * 1024)
+    }
+}
+
+/// Ordered viewport messages waiting for terminal processing.
+#[derive(Component, Debug, Clone, Default, Reflect)]
+pub struct PendingTermViewportMsgs {
+    messages: VecDeque<TermViewportMsg>,
+    bytes: usize,
+}
+impl PendingTermViewportMsgs {
+    /// Queued messages in FIFO order.
+    pub fn messages(&self) -> &VecDeque<TermViewportMsg> {
+        &self.messages
+    }
+
+    /// Approximate inline storage used by queued messages.
+    pub fn len_bytes(&self) -> usize {
+        self.bytes
+    }
+
+    pub(crate) fn push(&mut self, message: TermViewportMsg, cap: usize) {
+        let message_bytes = std::mem::size_of::<TermViewportMsg>();
+        self.messages.push_back(message);
+        self.bytes = self.bytes.saturating_add(message_bytes);
+
+        let mut evicted = 0;
+        while self.bytes > cap {
+            let Some(_) = self.messages.pop_front() else {
+                break;
+            };
+            self.bytes = self.bytes.saturating_sub(message_bytes);
+            evicted += 1;
+        }
+        if evicted > 0 {
+            warn!(evicted, cap, "evicted pending terminal viewport messages");
+        }
+    }
+
+    pub(crate) fn take(&mut self) -> VecDeque<TermViewportMsg> {
+        self.bytes = 0;
+        std::mem::take(&mut self.messages)
+    }
+}
+
+/// A Bevy-friendly terminal write which encodes to ordinary ANSI bytes.
 #[derive(Debug, PartialEq, Reflect, Clone)]
 pub struct TermWrite {
     pub text: String,
@@ -179,4 +256,29 @@ impl TermWrite {
             ..self
         }
     }
+
+    /// Encode this helper value as standard ANSI/UTF-8 bytes.
+    pub fn to_ansi_bytes(&self) -> Vec<u8> {
+        let mut bytes = Vec::new();
+        if self.reset_style {
+            bytes.extend_from_slice(b"\x1b[0m");
+        }
+        if let Some(style) = self.style {
+            let [r, g, b, _] = style.color.to_srgba().to_u8_array();
+            let [br, bg, bb, _] = style.background.to_srgba().to_u8_array();
+            bytes.extend_from_slice(
+                format!("\x1b[38;2;{r};{g};{b};48;2;{br};{bg};{bb}m").as_bytes(),
+            );
+        }
+        bytes.extend_from_slice(self.text.as_bytes());
+        bytes
+    }
+}
+
+/// Encode rich terminal writes into one ordered ANSI byte stream.
+pub fn term_writes_to_ansi(writes: impl IntoIterator<Item = TermWrite>) -> Vec<u8> {
+    writes
+        .into_iter()
+        .flat_map(|write| write.to_ansi_bytes())
+        .collect()
 }

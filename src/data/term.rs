@@ -16,6 +16,10 @@ use bevy::ecs::{lifecycle::HookContext, world::DeferredWorld};
 ///
 /// No shell is provided by default. You will need to bring your own.
 ///
+/// A terminal's lifetime is the lifetime of its entity. Close it by despawning
+/// that entity; removing and reinserting only this marker will result in loose
+/// terminal state components.
+///
 /// ```rust
 ///# use q_term::prelude::*;
 ///# let mut app = App::new();
@@ -24,10 +28,13 @@ use bevy::ecs::{lifecycle::HookContext, world::DeferredWorld};
 /// let term_id = commands.spawn(Terminal).id();
 /// // attach a foreground process from a sibling crate (e.g. `q_proc`).
 /// ```
-#[derive(Component, Reflect)]
+#[derive(Component, Reflect, Debug)]
+#[component(immutable)]
 #[require(
     VtLineTarget,
     VtCursor,
+    VtParserState,
+    VtRenderState,
     VtScrollPos,
     VtSize,
     VtViewport,
@@ -36,6 +43,21 @@ use bevy::ecs::{lifecycle::HookContext, world::DeferredWorld};
     Name::new("Terminal")
 )]
 pub struct Terminal;
+
+/// Marks a live [`Terminal`] whose display dimensions are ready for processing.
+#[derive(Component, Reflect, Debug, Default)]
+pub struct VtReady;
+
+/// Persistent parser state for a terminal byte stream.
+#[derive(Component, Clone, Debug, Default)]
+pub struct VtParserState(pub(crate) AnsiParser);
+
+/// Persistent render style applied by the terminal parser.
+#[derive(Component, Clone, Copy, Debug, Default)]
+pub struct VtRenderState {
+    pub(crate) style: VtCellStyle,
+    pub(crate) default_style: VtCellStyle,
+}
 
 /// DEC private modes the parser tracks per [`Terminal`]. Mutated by
 /// SM (`CSI ? Pn h`) and RM (`CSI ? Pn l`); read by render systems
@@ -114,7 +136,7 @@ impl Default for VtTabStop {
 ///
 /// Relationship target for [`VtLine`] 1:n
 #[derive(Component, Default, Deref, Debug, Reflect)]
-#[relationship_target(relationship=VtLine)]
+#[relationship_target(relationship=VtLine, linked_spawn)]
 pub struct VtLineTarget(Vec<Entity>);
 impl VtLineTarget {
     pub fn entities(&self) -> &[Entity] {
@@ -190,7 +212,7 @@ impl VtLine {
 ///
 /// Relationship target for [`VtRow`] 1:n
 #[derive(Component, Debug, Reflect, Default, Clone)]
-#[relationship_target(relationship=VtRow)]
+#[relationship_target(relationship=VtRow, linked_spawn)]
 pub struct VtRowTarget(Vec<Entity>);
 impl VtRowTarget {
     pub fn entities(&self) -> &[Entity] {
@@ -251,7 +273,7 @@ pub struct VtScrollPos(pub usize);
 /// Trackpads commonly emit many small `MouseScrollUnit::Pixel` events whose
 /// converted line-delta is well under 1.0. Without accumulation those
 /// deltas truncate to 0 when cast to `isize` and the viewport never moves.
-/// `on_scroll` accumulates here and only emits a `TermScrollMsg` once the
+/// `on_scroll` accumulates here and only emits a [`TermViewportMsg`] once the
 /// magnitude crosses a whole line.
 #[derive(Component, Debug, Reflect, Clone, Copy, Deref, Default)]
 pub struct VtScrollAccumulator(pub f32);
@@ -286,7 +308,7 @@ impl Default for VtScrollSensitivity {
 ///
 /// Relationship target for [`VtViewportRow`] (1:n).
 #[derive(Component, Default, Deref, Debug, Reflect)]
-#[relationship_target(relationship=VtViewportRow)]
+#[relationship_target(relationship=VtViewportRow, linked_spawn)]
 // #[component(on_add=Self::on_add)]
 pub struct VtViewport(Vec<Entity>);
 impl VtViewport {
@@ -355,16 +377,16 @@ pub struct VtSize {
 }
 impl VtSize {
     fn on_insert(mut world: DeferredWorld, ctx: HookContext) {
-        world
-            .commands()
-            .write_message(TermReflowMsg::new(ctx.entity));
+        let mut commands = world.commands();
+        commands.entity(ctx.entity).remove::<VtReady>();
+        commands.write_message(TermReflowMsg::new(ctx.entity));
     }
 }
 
-/// 1-1 relationship describing the foreground terminal process. This process
-/// will be the target of all outflowing [`TermStdIn`] messages, and
-/// only the [`TermStdOut`] messages from this entity will be rendered
-/// to the [`Terminal`].
+/// 1-1 relationship describing the foreground terminal peer.
+///
+/// External integration code maintains this opaque relationship. The terminal
+/// may use it to suppress background writes when configured to do so.
 #[derive(Component, Debug, Reflect)]
 #[relationship(relationship_target=VtForegroundProcessTarget)]
 pub struct VtForegroundProcess {

@@ -28,12 +28,8 @@ struct Input {
     buffer: String,
 }
 
-fn write(term: Entity, from: Entity, text: impl ToString) -> TermStdOut {
-    TermStdOut {
-        term,
-        from,
-        message: vec![TermWrite::new(text)],
-    }
+fn write(term: Entity, from: Entity, text: impl ToString) -> VtWriteMsg {
+    VtWriteMsg::from_peer(term, from, text.to_string().into_bytes())
 }
 
 fn main() {
@@ -46,7 +42,7 @@ fn main() {
             }),
             ..default()
         }),
-        TerminalPlugin,
+        TerminalPlugin::default(),
     ));
     app.add_systems(Startup, setup);
     app.add_systems(Update, (on_key, cycle_cursor_style));

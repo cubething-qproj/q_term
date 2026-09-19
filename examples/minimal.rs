@@ -3,24 +3,16 @@ use q_term::prelude::*;
 
 const LONG_LINE: &str = "This is a really long line! It should be wrapping. Just checking :) How are you doing today? I'm doing pretty good myself.\n";
 
-fn write(term: Entity, from: Entity, text: impl ToString) -> TermStdOut {
-    TermStdOut {
-        term,
-        from,
-        message: vec![TermWrite::new(text)],
-    }
+fn write(term: Entity, from: Entity, text: impl ToString) -> VtWriteMsg {
+    VtWriteMsg::from_peer(term, from, text.to_string().into_bytes())
 }
-fn writeln(term: Entity, from: Entity, text: impl ToString) -> TermStdOut {
-    let mut s = text.to_string();
-    s.push('\n');
-    write(term, from, s)
+fn writeln(term: Entity, from: Entity, text: impl ToString) -> VtWriteMsg {
+    let mut text = text.to_string();
+    text.push('\n');
+    write(term, from, text)
 }
-fn write_spans(term: Entity, from: Entity, message: Vec<TermWrite>) -> TermStdOut {
-    TermStdOut {
-        term,
-        from,
-        message,
-    }
+fn write_spans(term: Entity, from: Entity, writes: Vec<TermWrite>) -> VtWriteMsg {
+    VtWriteMsg::from_peer(term, from, term_writes_to_ansi(writes))
 }
 
 fn main() {
@@ -34,7 +26,7 @@ fn main() {
             }),
             ..Default::default()
         }),
-        TerminalPlugin,
+        TerminalPlugin::default(),
     ));
     app.add_plugins((
         bevy_inspector_egui::bevy_egui::EguiPlugin::default(),
@@ -86,8 +78,8 @@ fn main() {
         // ... but writing lines is probably what you're looking for.
         commands.write_message(writeln(term_id, fg, LONG_LINE));
 
-        // commands.write_message(TermScrollMsg::new(term_id, 10));
-        // commands.write_message(TermScrollMsg::new(term_id, -5));
+        // commands.write_message(TermViewportMsg::scroll(term_id, 10));
+        // commands.write_message(TermViewportMsg::scroll(term_id, -5));
     });
     app.add_systems(PostUpdate, |mut ran: Local<bool>| {
         if *ran {

@@ -1,65 +1,62 @@
 use crate::prelude::*;
 
-/// Holds the bare entity spawned in `Startup` so each step's system can
-/// look it up by id.
+/// Holds the terminal spawned in `Startup` so each step can look it up.
 #[derive(Resource)]
 struct Target(Entity);
 
-/// Verifies the pending-input retry path end to end:
-///
-/// 1. A `TermStdOut` written against an entity that lacks
-///    `Terminal` and `VtSize` causes `process_input` to attach a
-///    `PendingTermInput` rather than dropping the writes.
-/// 2. Once the target gains the prerequisites for `TermInfo` to
-///    resolve, `drain_pending` removes the component and re-emits
-///    the original message; `process_input` then applies the writes
-///    so the buffer reflects them.
+/// Verifies the pending-ingress retry path end to end.
 #[test]
 fn pending_input_attach_and_drain() {
     let mut app = get_test_app();
 
     app.add_systems(Startup, |mut commands: Commands| {
-        let target = commands.spawn_empty().id();
+        let target = commands.spawn(Terminal).id();
         let fg = commands.spawn(VtForegroundProcess::new(target)).id();
         commands.insert_resource(Target(target));
         commands.insert_resource(TestTerm { term: target, fg });
         commands.write_message(write(target, fg, "Hello, world!"));
     });
+    app.add_systems(
+        Update,
+        (|target: Res<Target>, mut commands: Commands, mut sent: Local<bool>| {
+            if !*sent {
+                commands.write_message(VtWriteMsg::new(target.0, b"new".to_vec()));
+                *sent = true;
+            }
+        })
+        .in_set(TerminalSystems::Input)
+        .run_if(in_state(Step(1))),
+    );
 
-    // Step 0: wait for `process_input` to attach `PendingTermInput`,
-    // assert its contents, then make the target resolvable and advance
-    // to step 1.
     app.add_step(
         0,
         |target: Res<Target>,
-         q_pending: Query<&PendingStdOut>,
+         q_pending: Query<&PendingVtWrites>,
          mut commands: Commands,
          mut next: ResMut<NextState<Step>>| {
             let Ok(pending) = q_pending.get(target.0) else {
                 return;
             };
-            let queued: String = pending
-                .msgs
+            let queued = pending
+                .chunks()
                 .iter()
-                .flat_map(|m| m.message.iter().map(|w| w.text.clone()))
-                .collect();
+                .flat_map(|message| message.bytes.iter().copied())
+                .collect::<Vec<_>>();
             r!(commands.assert(
-                queued == "Hello, world!",
-                format!("expected pending text \"Hello, world!\", got {queued:?}"),
+                queued == b"Hello, world!",
+                format!("expected pending bytes \"Hello, world!\", got {queued:?}"),
             ));
             commands
                 .entity(target.0)
-                .insert((Terminal, VtSize { cols: 80, rows: 24 }));
+                .insert(VtSize { cols: 80, rows: 24 });
             next.set(Step(1));
         },
     );
 
-    // Step 1: poll until `drain_pending` removes the component and the
-    // re-emitted writes have been applied to the buffer; then exit.
     app.add_step(
         1,
         |target: Res<Target>,
-         q_pending: Query<&PendingStdOut>,
+         q_pending: Query<&PendingVtWrites>,
          q_term: Query<TermInfo>,
          q_lines: Query<(Entity, &VtLine)>,
          mut commands: Commands| {
@@ -79,8 +76,11 @@ fn pending_input_attach_and_drain() {
             ));
             let (_, line) = &lines[0];
             r!(commands.assert(
-                line.as_string() == "Hello, world!",
-                format!("expected \"Hello, world!\", got {:?}", line.as_string()),
+                line.as_string() == "Hello, world!new",
+                format!(
+                    "expected pending bytes before new ingress, got {:?}",
+                    line.as_string()
+                ),
             ));
             commands.write_message(AppExit::Success);
         },

@@ -1,13 +1,10 @@
-//! Tests for reverse-channel ANSI replies on `TermStdIn`.
+//! Tests for reverse-channel ANSI replies on `VtReplyMsg`.
 //!
-//! When the parser sees a query sequence on stdout, it must format the
-//! reply bytes and emit them on the `TermStdIn` message channel, which
-//! corresponds to the application's stdin (see `q_term`'s plumbing
-//! docs in `data.rs`). A real shell or loopback adapter consumes those
-//! bytes on the other end.
+//! When the parser sees a query sequence, it emits protocol bytes carrying
+//! only the source terminal. A shell or other adapter chooses their recipient.
 //!
-//! Each test feeds a query sequence as `TermStdOut`, then polls for
-//! `TermStdIn` messages addressed to the same terminal and asserts on
+//! Each test feeds a query sequence as `VtWriteMsg`, then polls for
+//! `VtReplyMsg` messages from the same terminal and asserts on
 //! the concatenated reply bytes. Polling (rather than a single-frame
 //! read) accommodates the same bootstrap delay that the rest of the
 //! test suite tolerates while `VtSize` / `VtViewport` settle.
@@ -16,7 +13,7 @@ use crate::prelude::*;
 
 /// Spawn a terminal sized `cols x rows`, feed `input` as stdout, and
 /// keep polling each frame until the accumulated bytes received on
-/// `TermStdIn` for that terminal equal `expect`. The test runner's
+/// `VtReplyMsg` for that terminal equal `expect`. The test runner's
 /// timeout backstops a missing reply.
 fn writeback_test(cols: usize, rows: usize, input: &'static str, expect: &'static [u8]) {
     let mut app = get_test_app();
@@ -27,7 +24,7 @@ fn writeback_test(cols: usize, rows: usize, input: &'static str, expect: &'stati
     app.add_step(
         0,
         move |q_term: Query<TermInfo>,
-              mut reader: MessageReader<TermStdIn>,
+              mut reader: MessageReader<VtReplyMsg>,
               mut acc: Local<Vec<u8>>,
               mut commands: Commands| {
             let Ok(terminfo) = q_term.single() else {
@@ -35,7 +32,7 @@ fn writeback_test(cols: usize, rows: usize, input: &'static str, expect: &'stati
             };
             for msg in reader.read() {
                 if msg.term == terminfo.id {
-                    acc.extend(msg.message.bytes());
+                    acc.extend(&msg.bytes);
                 }
             }
             if acc.len() < expect.len() {

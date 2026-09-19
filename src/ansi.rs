@@ -174,12 +174,10 @@ pub struct Grid<'a> {
     modes: VtModes,
     tab_stop: usize,
     term_id: Entity,
-    fg_job: Entity,
 }
 impl<'a> Grid<'a> {
     pub fn new<'w, 's>(
         terminfo: &TermInfoItem<'w, 's>,
-        fg_job: Entity,
         q_lines: &'a Query<(Entity, &VtLine, &VtRowTarget)>,
         q_rows: &'a Query<(Entity, &VtRow)>,
     ) -> Self {
@@ -212,7 +210,6 @@ impl<'a> Grid<'a> {
             modes: *terminfo.modes,
             tab_stop: terminfo.tab_stop.0,
             term_id: terminfo.id,
-            fg_job,
         }
     }
 
@@ -646,28 +643,23 @@ impl<'a> Grid<'a> {
 /// and modifying various [`TerminalLine`]s.
 pub(crate) struct AnsiPerformer<'a, 'g, 'w> {
     grid: &'a mut Grid<'g>,
-    style: VtCellStyle,
-    default_style: VtCellStyle,
-    writer: &'a mut MessageWriter<'w, TermStdIn>,
+    rendition: &'a mut VtRenderState,
+    writer: &'a mut MessageWriter<'w, VtReplyMsg>,
     target: Entity,
 }
 impl<'a, 'g, 'w> AnsiPerformer<'a, 'g, 'w> {
     pub fn new(
         grid: &'a mut Grid<'g>,
-        writer: &'a mut MessageWriter<'w, TermStdIn>,
+        rendition: &'a mut VtRenderState,
+        writer: &'a mut MessageWriter<'w, VtReplyMsg>,
         target: Entity,
     ) -> Self {
         Self {
             grid,
+            rendition,
             writer,
             target,
-            style: VtCellStyle::default(),
-            default_style: VtCellStyle::default(),
         }
-    }
-    pub fn reset_style(&mut self, style: VtCellStyle) {
-        self.default_style = style;
-        self.style = style;
     }
 
     /// Apply SM (`set = true`) or RM (`set = false`) to every param in
@@ -695,7 +687,7 @@ impl<'a, 'g, 'w> AnsiPerformer<'a, 'g, 'w> {
 impl<'a, 'g, 'w> anstyle_parse::Perform for AnsiPerformer<'a, 'g, 'w> {
     fn print(&mut self, c: char) {
         trace!("print");
-        self.grid.write(c, self.style);
+        self.grid.write(c, self.rendition.style);
         self.grid.increment_char(true);
     }
 
@@ -863,7 +855,7 @@ impl<'a, 'g, 'w> anstyle_parse::Perform for AnsiPerformer<'a, 'g, 'w> {
                     .next()
                     .and_then(|p| p.first().copied())
                     .unwrap_or(0);
-                self.grid.erase_in_display(mode, self.style);
+                self.grid.erase_in_display(mode, self.rendition.style);
             }
             action if action == CsiAction::EL as u8 => {
                 // EL is 0-indexed (default 0), unlike CUU et al.
@@ -871,7 +863,7 @@ impl<'a, 'g, 'w> anstyle_parse::Perform for AnsiPerformer<'a, 'g, 'w> {
                     .next()
                     .and_then(|p| p.first().copied())
                     .unwrap_or(0);
-                self.grid.erase_in_line(mode, self.style);
+                self.grid.erase_in_line(mode, self.rendition.style);
             }
             // ECH / ICH / DCH: count defaults to 1 and is clamped to >= 1,
             // matching CUU et al.
@@ -881,7 +873,7 @@ impl<'a, 'g, 'w> anstyle_parse::Perform for AnsiPerformer<'a, 'g, 'w> {
                     .and_then(|p| p.first().copied())
                     .unwrap_or(1)
                     .max(1) as usize;
-                self.grid.erase_characters(n, self.style);
+                self.grid.erase_characters(n, self.rendition.style);
             }
             action if action == CsiAction::ICH as u8 => {
                 let n = param_iter
@@ -889,7 +881,7 @@ impl<'a, 'g, 'w> anstyle_parse::Perform for AnsiPerformer<'a, 'g, 'w> {
                     .and_then(|p| p.first().copied())
                     .unwrap_or(1)
                     .max(1) as usize;
-                self.grid.insert_characters(n, self.style);
+                self.grid.insert_characters(n, self.rendition.style);
             }
             action if action == CsiAction::DCH as u8 => {
                 let n = param_iter
@@ -897,9 +889,9 @@ impl<'a, 'g, 'w> anstyle_parse::Perform for AnsiPerformer<'a, 'g, 'w> {
                     .and_then(|p| p.first().copied())
                     .unwrap_or(1)
                     .max(1) as usize;
-                self.grid.delete_characters(n, self.style);
+                self.grid.delete_characters(n, self.rendition.style);
             }
-            // DSR replies on the TermStdIn (reverse) channel. The wire
+            // DSR replies on the VtReplyMsg channel. The wire
             // protocol is 1-indexed; our internal cursor is 0-indexed,
             // so we add 1 when serialising.
             action if action == CsiAction::DSR as u8 => {
@@ -911,14 +903,14 @@ impl<'a, 'g, 'w> anstyle_parse::Perform for AnsiPerformer<'a, 'g, 'w> {
                     5 => {
                         // "Ready, no malfunctions detected."
                         self.writer
-                            .write(TermStdIn::new(self.target, self.grid.fg_job, "\x1b[0n"));
+                            .write(VtReplyMsg::new(self.target, b"\x1b[0n".to_vec()));
                     }
                     6 => {
                         let row = self.grid.cursor.row + 1;
                         let col = self.grid.cursor.col + 1;
                         let reply = format!("\x1b[{row};{col}R");
                         self.writer
-                            .write(TermStdIn::new(self.target, self.grid.fg_job, reply));
+                            .write(VtReplyMsg::new(self.target, reply.into_bytes()));
                     }
                     _ => {}
                 }
@@ -937,11 +929,8 @@ impl<'a, 'g, 'w> anstyle_parse::Perform for AnsiPerformer<'a, 'g, 'w> {
                 if mode == 0 {
                     // VT220 base + ANSI color -- honest claim for what
                     // the parser currently implements.
-                    self.writer.write(TermStdIn::new(
-                        self.target,
-                        self.grid.fg_job,
-                        "\x1b[?62;22c",
-                    ));
+                    self.writer
+                        .write(VtReplyMsg::new(self.target, b"\x1b[?62;22c".to_vec()));
                 }
             }
             action if action == CsiAction::SGR as u8 => {
@@ -949,16 +938,16 @@ impl<'a, 'g, 'w> anstyle_parse::Perform for AnsiPerformer<'a, 'g, 'w> {
                 // sequence (e.g. \x1b[38;2;R;G;B;48;2;R;G;Bm), so we loop.
                 while let Some(param) = param_iter.next() {
                     match param {
-                        [0] => self.style = self.default_style,
+                        [0] => self.rendition.style = self.rendition.default_style,
                         [8] => info_once!("Conceal color mode not yet implemented"),
                         // 24-bit color via colon subparams: \x1b[38:2:R:G:Bm
                         // TODO?: x == 58 for underline styling
                         [x, 2, r, g, b] if *x == 38 || *x == 48 => {
                             let color = Color::srgb_u8(*r as u8, *g as u8, *b as u8);
                             if *x == 38 {
-                                self.style.color = color;
+                                self.rendition.style.color = color;
                             } else {
-                                self.style.background = color;
+                                self.rendition.style.background = color;
                             }
                         }
                         // 256 color via colon subparams: \x1b[38:5:Nm
@@ -984,9 +973,9 @@ impl<'a, 'g, 'w> anstyle_parse::Perform for AnsiPerformer<'a, 'g, 'w> {
                                         .unwrap_or(0);
                                     let color = Color::srgb_u8(r as u8, g as u8, b as u8);
                                     if *x == 38 {
-                                        self.style.color = color;
+                                        self.rendition.style.color = color;
                                     } else {
-                                        self.style.background = color;
+                                        self.rendition.style.background = color;
                                     }
                                 }
                                 Some(5) => {
@@ -1007,9 +996,10 @@ impl<'a, 'g, 'w> anstyle_parse::Perform for AnsiPerformer<'a, 'g, 'w> {
                             let is_bg = x / 10 == 4 || x / 10 == 10;
                             if *x == 39 || *x == 49 {
                                 if is_bg {
-                                    self.style.background = self.default_style.background;
+                                    self.rendition.style.background =
+                                        self.rendition.default_style.background;
                                 } else {
-                                    self.style.color = self.default_style.color;
+                                    self.rendition.style.color = self.rendition.default_style.color;
                                 }
                                 continue;
                             }
@@ -1036,9 +1026,9 @@ impl<'a, 'g, 'w> anstyle_parse::Perform for AnsiPerformer<'a, 'g, 'w> {
                                 _ => unreachable!(),
                             };
                             if is_bg {
-                                self.style.background = color.into();
+                                self.rendition.style.background = color.into();
                             } else {
-                                self.style.color = color.into();
+                                self.rendition.style.color = color.into();
                             }
                         }
                         _ => {}

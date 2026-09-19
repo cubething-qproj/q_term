@@ -41,8 +41,16 @@ fn modes_test(
     });
     app.add_step(
         0,
-        move |q_modes: Query<&VtModes, With<Terminal>>, mut commands: Commands| {
-            let modes = r!(q_modes.single());
+        move |q_modes: Query<&VtModes, (With<Terminal>, With<VtReady>)>,
+              mut observed_ready: Local<bool>,
+              mut commands: Commands| {
+            let Ok(modes) = q_modes.single() else {
+                return;
+            };
+            if !*observed_ready {
+                *observed_ready = true;
+                return;
+            }
             if check(modes, &mut commands) {
                 commands.write_message(AppExit::Success);
             } else {

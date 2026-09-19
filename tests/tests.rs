@@ -33,39 +33,21 @@ pub mod helpers {
         TestTerm { term, fg }
     }
 
-    /// Build a plain-text [`TermStdOut`] addressed to `term` from the
-    /// given foreground process. `from` is mandatory: a write whose
-    /// `from` doesn't match the terminal's `VtForegroundProcess` is
-    /// dropped by `process_input`, so tests must thread the right
-    /// entity through.
-    pub fn write(term: Entity, from: Entity, text: impl ToString) -> TermStdOut {
-        TermStdOut {
-            term,
-            from,
-            message: vec![TermWrite::new(text)],
-        }
+    /// Build a plain-text [`VtWriteMsg`] addressed to `term` from a peer.
+    pub fn write(term: Entity, from: Entity, text: impl ToString) -> VtWriteMsg {
+        VtWriteMsg::from_peer(term, from, text.to_string().into_bytes())
     }
 
-    /// Same as [`write`] but appends a trailing newline -- the common
-    /// case for line-oriented test output.
-    pub fn writeln(term: Entity, from: Entity, text: impl ToString) -> TermStdOut {
-        let mut s = text.to_string();
-        s.push('\n');
-        TermStdOut {
-            term,
-            from,
-            message: vec![TermWrite::new(s)],
-        }
+    /// Same as [`write`] but appends a trailing newline.
+    pub fn writeln(term: Entity, from: Entity, text: impl ToString) -> VtWriteMsg {
+        let mut text = text.to_string();
+        text.push('\n');
+        VtWriteMsg::from_peer(term, from, text.into_bytes())
     }
 
-    /// Build a multi-span [`TermStdOut`]. See [`write`] for the
-    /// `from`-filter contract.
-    pub fn write_spans(term: Entity, from: Entity, message: Vec<TermWrite>) -> TermStdOut {
-        TermStdOut {
-            term,
-            from,
-            message,
-        }
+    /// Encode rich helper values into one byte-only [`VtWriteMsg`].
+    pub fn write_spans(term: Entity, from: Entity, writes: Vec<TermWrite>) -> VtWriteMsg {
+        VtWriteMsg::from_peer(term, from, term_writes_to_ansi(writes))
     }
 }
 
@@ -97,7 +79,7 @@ pub fn get_test_app() -> App {
         TextureAtlasPlugin,
         ImagePlugin::default(),
         TexturePlugin,
-        TerminalPlugin,
+        TerminalPlugin::default(),
     ));
     app.insert_resource(TestRunnerTimeout(2.));
     app

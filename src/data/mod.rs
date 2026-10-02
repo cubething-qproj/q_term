@@ -13,4 +13,3 @@ pub mod prelude {
     pub use super::terminfo::*;
     pub use super::ui::*;
 }
-

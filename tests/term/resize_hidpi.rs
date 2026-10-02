@@ -84,13 +84,9 @@ fn run_resize_with_scale(inverse_scale_factor: f32) -> Option<(usize, usize)> {
         .entity_mut(cw_entity)
         .insert(VtCharWidth::new(vtui_id, CW_PX));
 
-    app.world_mut()
-        .run_system_once(resize)
-        .expect("resize ran");
+    app.world_mut().run_system_once(resize).expect("resize ran");
 
-    app.world()
-        .get::<VtSize>(term_id)
-        .map(|s| (s.cols, s.rows))
+    app.world().get::<VtSize>(term_id).map(|s| (s.cols, s.rows))
 }
 
 /// 1× DPI: physical size equals logical size. Verifies the fix did
@@ -121,13 +117,15 @@ fn resize_at_2x_dpi_converts_physical_to_logical_pixels() {
     let expected_cols = ((PHYSICAL_W * 0.5) / CW_PX) as usize; // 50
     let expected_rows = ((PHYSICAL_H * 0.5) / LINE_HEIGHT_PX) as usize; // 25
     assert_eq!(
-        cols, expected_cols,
+        cols,
+        expected_cols,
         "2× DPI cols: expected {expected_cols} (logical), got {cols} -- pre-fix would have been \
          {}",
         (PHYSICAL_W / CW_PX) as usize,
     );
     assert_eq!(
-        rows, expected_rows,
+        rows,
+        expected_rows,
         "2× DPI rows: expected {expected_rows} (logical), got {rows} -- pre-fix would have been \
          {}",
         (PHYSICAL_H / LINE_HEIGHT_PX) as usize,

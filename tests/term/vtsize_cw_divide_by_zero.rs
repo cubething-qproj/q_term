@@ -60,9 +60,7 @@ fn resize_bails_when_char_width_is_zero() {
     // Drive `resize` directly. Pre-fix: succeeds but writes
     // `VtSize { cols: usize::MAX, rows: usize::MAX }`. Post-fix:
     // bails via `c!`, no `VtSize` insert.
-    app.world_mut()
-        .run_system_once(resize)
-        .expect("resize ran");
+    app.world_mut().run_system_once(resize).expect("resize ran");
 
     // The `Terminal` should not have an absurd `VtSize`. Either no
     // `VtSize` was written (post-fix bail) or it was written with sane

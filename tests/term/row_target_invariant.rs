@@ -61,11 +61,7 @@ fn vt_linetarget_entries_resolve_through_row_target_query() {
             for i in 0..20 {
                 commands.write_message(writeln(term_id, fg, format!("{i}")));
             }
-            commands.write_message(write(
-                term_id,
-                fg,
-                "hello\nhere are multiple lines\n",
-            ));
+            commands.write_message(write(term_id, fg, "hello\nhere are multiple lines\n"));
             commands.write_message(write(
                 term_id,
                 fg,

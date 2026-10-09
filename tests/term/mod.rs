@@ -5,6 +5,7 @@ mod hello_world;
 mod io_boundary;
 mod pending_input;
 mod pending_scroll;
+mod reflow_cursor;
 mod resize_hidpi;
 mod row_target_invariant;
 mod shift;

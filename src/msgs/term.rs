@@ -163,6 +163,7 @@ pub fn apply_reflow(
     mut redraw_requested: MessageWriter<TermRedrawRequestedMsg>,
     q_terminfo: Query<TermInfo>,
     q_lines: Query<(Entity, &VtLine)>,
+    q_rows: Query<&VtRow>,
     q_rowtargets: Query<&VtRowTarget, With<VtLine>>,
 ) {
     trace!("apply_reflow");
@@ -197,6 +198,15 @@ pub fn apply_reflow(
         if terminfo.size.cols == 0 || terminfo.size.rows == 0 {
             continue;
         }
+        // Resolve the cursor's logical (line, char offset) from the old
+        // viewport before the rows are despawned.
+        let cursor_pos = terminfo.viewport.get(terminfo.cursor.row).and_then(|&vp| {
+            terminfo.lines(&q_lines).find_map(|(line_id, _)| {
+                let targets = q_rowtargets.get(line_id).ok()?.entities();
+                let row = q_rows.get(*targets.iter().find(|&&r| r == vp)?).ok()?;
+                Some((line_id, row.offset + terminfo.cursor.col))
+            })
+        });
         // clear terminal display cache (only rows belonging to this terminal)
         for (line_id, _) in terminfo.lines(&q_lines) {
             if let Ok(row_target) = q_rowtargets.get(line_id) {
@@ -207,17 +217,38 @@ pub fn apply_reflow(
         }
         commands.entity(target).despawn_related::<VtViewport>();
         // reflow
+        // (index of the cursor line's first row, its row count)
+        let mut cursor_line = None;
         let rows = terminfo
             .lines(&q_lines)
             .fold(vec![], |mut res, (line_id, line)| {
                 let mut rows = flow_line(&mut commands, &terminfo, line_id, line);
+                if cursor_pos.is_some_and(|(id, _)| id == line_id) {
+                    cursor_line = Some((res.len(), rows.len()));
+                }
                 res.append(&mut rows);
                 res
             });
-        let scroll_pos = terminfo
-            .scroll_pos
-            .0
-            .min(rows.len().saturating_sub(terminfo.size.rows));
+        let max_scroll = rows.len().saturating_sub(terminfo.size.rows);
+        let mut scroll_pos = terminfo.scroll_pos.0.min(max_scroll);
+        // Remap the cursor onto the new rows. A cursor at the end of a full
+        // row stays there with `pending_wrap`. If it falls outside the
+        // viewport, scroll so it is the last visible row.
+        let mut cursor = *terminfo.cursor;
+        if let (Some((_, char)), Some((first, count))) = (cursor_pos, cursor_line) {
+            let row_idx = (char / terminfo.size.cols).min(count - 1);
+            cursor.col = (char - row_idx * terminfo.size.cols).min(terminfo.size.cols);
+            cursor.pending_wrap = cursor.col == terminfo.size.cols;
+            let global = first + row_idx;
+            let start = rows.len().saturating_sub(scroll_pos + terminfo.size.rows);
+            if global < start || global >= start + terminfo.size.rows {
+                scroll_pos = (rows.len() - 1 - global).min(max_scroll);
+            }
+            cursor.row = global - rows.len().saturating_sub(scroll_pos + terminfo.size.rows);
+        }
+        cursor.row = cursor.row.min(terminfo.size.rows - 1);
+        cursor.col = cursor.col.min(terminfo.size.cols);
+        commands.entity(target).insert(cursor);
         if scroll_pos != terminfo.scroll_pos.0 {
             commands.entity(target).insert(VtScrollPos(scroll_pos));
         }

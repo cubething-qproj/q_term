@@ -221,6 +221,13 @@ pub fn refresh_ui(
                 ChildOf(grid_id),
             ));
         }
+        // Newlines separate rows. A trailing one adds a line of height, which
+        // grows a content-sized `VtUi` by a row on every resize.
+        if let Some((span, _, _)) = spans.last_mut()
+            && span.0.ends_with('\n')
+        {
+            span.0.pop();
+        }
         commands.spawn_batch(spans);
     }
 }

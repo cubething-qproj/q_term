@@ -1,8 +1,5 @@
 //! The primary [`Plugin`] for q_term.
-use bevy::{
-    ecs::schedule::{InternedScheduleLabel, ScheduleLabel},
-    ui::ui_layout_system,
-};
+use bevy::ecs::schedule::{InternedScheduleLabel, ScheduleLabel};
 
 use crate::prelude::*;
 
@@ -28,26 +25,22 @@ pub enum TerminalSystems {
 ///
 /// Explicitly orders [`TerminalSystems::Input`] -> [`TerminalSystems::Measure`]
 /// -> [`TerminalSystems::Process`] -> [`TerminalSystems::Render`] in `Update`.
-/// UI refresh also runs in `PostUpdate` after `ui_layout_system`.
 #[derive(Debug)]
 pub struct TerminalPlugin {
     update_schedule: InternedScheduleLabel,
-    post_update_schedule: InternedScheduleLabel,
 }
 impl Default for TerminalPlugin {
     fn default() -> Self {
-        Self::new(Update, PostUpdate)
+        Self::new(Update)
     }
 }
 impl TerminalPlugin {
-    /// Configure the schedules for terminal processing and post-layout UI refresh.
-    pub fn new(
-        update_schedule: impl ScheduleLabel,
-        post_update_schedule: impl ScheduleLabel,
-    ) -> Self {
+    /// Configure the schedule for terminal processing and UI refresh. UI
+    /// refresh must precede `PostUpdate` so new text spans are laid out in
+    /// the frame they are spawned.
+    pub fn new(update_schedule: impl ScheduleLabel) -> Self {
         Self {
             update_schedule: update_schedule.intern(),
-            post_update_schedule: post_update_schedule.intern(),
         }
     }
 }
@@ -91,14 +84,8 @@ impl Plugin for TerminalPlugin {
                 )
                     .chain()
                     .in_set(TerminalSystems::Process),
-                (update_cursor_display, flash_cursor).in_set(TerminalSystems::Render),
+                (update_cursor_display, flash_cursor, refresh_ui).in_set(TerminalSystems::Render),
             ),
-        );
-        app.add_systems(
-            self.post_update_schedule,
-            refresh_ui
-                .after(ui_layout_system)
-                .in_set(TerminalSystems::Render),
         );
     }
 }

@@ -34,14 +34,20 @@ fn font_size_px(font: &TextFont) -> f32 {
 // We _could_ make the parent node invisible, then override the inserted text span's Visibility components.
 //
 
-/// Propogates font changes from the [`VtUi`] to the targeted TerminalCharWidth entity.
+/// Propogates font changes from the [`VtUi`] to the targeted TerminalCharWidth entity,
+/// and redraws the terminal so its text picks up the new font.
 pub fn update_font(
-    q_font: Query<(&TextFont, &VtCharWidthTarget), Changed<TextFont>>,
+    q_font: Query<
+        (&VtUi, &TextFont, &VtCharWidthTarget),
+        Or<(Changed<TextFont>, Changed<LineHeight>)>,
+    >,
     q_cw: Query<Entity, With<VtCharWidth>>,
+    mut redraw_requested: MessageWriter<TermRedrawRequestedMsg>,
     mut commands: Commands,
 ) {
     trace!("update_font");
-    for (font, target) in q_font {
+    for (ui, font, target) in q_font {
+        redraw_requested.write(TermRedrawRequestedMsg::new(ui.target()));
         let cw_id = c!(q_cw.get(target.target()));
         commands.entity(cw_id).insert(font.clone());
     }
@@ -56,7 +62,8 @@ pub fn update_char_width(
     for (entity, node, cw) in q {
         // Convert physical -> logical pixels so this matches `LineHeight`
         // and the logical-pixel UI size used in `resize`.
-        let width_logical = node.size().x * node.inverse_scale_factor();
+        let width_logical = node.size().x * node.inverse_scale_factor()
+            / VtCharWidth::SAMPLE_CHARS as f32;
         commands
             .entity(entity)
             .insert(VtCharWidth::new(cw.target(), width_logical));
@@ -115,7 +122,7 @@ impl Default for TextSpanStyleBundle {
     fn default() -> Self {
         Self {
             color: TextColor(Color::WHITE),
-            bg: TextBackgroundColor(Color::BLACK),
+            bg: TextBackgroundColor(Color::NONE),
         }
     }
 }
@@ -173,11 +180,12 @@ fn generate_textspan_ui(
 /// Translates from [`VtViewportRow`] entities to the [`VtUi`]-based render.
 /// Drains [`TermRedrawRequestedMsg`] and rebuilds the [`TextSpan`]
 /// children for each affected terminal's UI target. Targets are
-/// de-duplicated within a frame.
+/// de-duplicated within a frame. Text takes the [`VtUi`]'s [`TextFont`] and
+/// [`LineHeight`], since Bevy text doesn't inherit them.
 pub fn refresh_ui(
     mut redraws: MessageReader<TermRedrawRequestedMsg>,
     q: Query<(TermInfo, &VtUiTarget)>,
-    q_grid: Query<&VtUiGridTarget, With<VtUi>>,
+    q_grid: Query<(&VtUiGridTarget, &TextFont, &LineHeight), With<VtUi>>,
     q_lines: Query<&VtLine>,
     q_viewport: Query<(&VtViewportRow, Option<Ref<VtRow>>)>,
     mut commands: Commands,
@@ -195,11 +203,14 @@ pub fn refresh_ui(
             Err(_) => continue,
         };
         let ui_id = ui_target.target();
-        let grid_id = match q_grid.get(ui_id) {
-            Ok(g) => g.target(),
+        let (grid_id, font, line_height) = match q_grid.get(ui_id) {
+            Ok((g, font, line_height)) => (g.target(), font, *line_height),
             Err(_) => continue,
         };
-        commands.entity(grid_id).despawn_children();
+        commands
+            .entity(grid_id)
+            .despawn_children()
+            .insert((font.clone(), line_height));
         let mut spans = vec![];
         let mut row_count = 0;
         for (_, maybe_row) in q_viewport.iter_many(terminfo.viewport.iter()) {
@@ -228,7 +239,12 @@ pub fn refresh_ui(
         {
             span.0.pop();
         }
-        commands.spawn_batch(spans);
+        let font = font.clone();
+        commands.spawn_batch(
+            spans
+                .into_iter()
+                .map(move |span| (span, font.clone(), line_height)),
+        );
     }
 }
 

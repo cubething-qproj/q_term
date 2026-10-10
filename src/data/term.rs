@@ -258,7 +258,8 @@ impl Default for VtCellStyle {
     fn default() -> Self {
         Self {
             color: Color::WHITE,
-            background: Color::BLACK,
+            // Let the `VtUi`'s own background show through.
+            background: Color::NONE,
         }
     }
 }

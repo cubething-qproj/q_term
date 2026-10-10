@@ -104,11 +104,17 @@ impl VtUiTarget {
     }
 }
 
-/// Width of a character cell in pixels, determined by measuring the width of a space.
+/// Width of a character cell in pixels, determined by measuring a run of spaces.
 /// Related to [`VtCharWidthTarget`] (1:1)
 #[derive(Component, Debug, Reflect, PartialEq, Clone, Copy)]
 #[component(immutable)]
-#[require(Node::default(), Pickable::IGNORE, Visibility::Hidden, Text::new(" "))]
+#[require(
+    Node::default(),
+    Pickable::IGNORE,
+    Visibility::Hidden,
+    TextLayout::no_wrap(),
+    Text = Text::new(" ".repeat(VtCharWidth::SAMPLE_CHARS)),
+)]
 #[relationship(relationship_target=VtCharWidthTarget)]
 pub struct VtCharWidth {
     #[relationship]
@@ -116,6 +122,11 @@ pub struct VtCharWidth {
     value: f32,
 }
 impl VtCharWidth {
+    /// Characters measured at once. Bevy rounds a text node's width up to a
+    /// whole pixel, so measuring one character overestimates its width by up
+    /// to a pixel, and the error accumulates across every column.
+    pub const SAMPLE_CHARS: usize = 100;
+
     pub fn new(target: Entity, value: f32) -> Self {
         Self { target, value }
     }

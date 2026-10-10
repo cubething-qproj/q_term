@@ -1,6 +1,7 @@
 mod ansi;
 mod cursor;
 mod erase;
+mod font;
 mod hello_world;
 mod io_boundary;
 mod pending_input;

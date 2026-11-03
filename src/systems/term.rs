@@ -16,13 +16,13 @@ use crate::prelude::*;
 ///
 /// q_term does not currently expose any UI for selecting a non-`Px` font
 /// size, so the practical behaviour is unchanged: `Px(v)` resolves to `v`,
-/// `Rem(s)` resolves to `16.0 * s` (a reasonable default rem), and the
+/// `Rem(s)` resolves to `s` times the default [`bevy::text::RemSize`] (20 px), and the
 /// viewport-relative variants resolve against an empty viewport (i.e. 0).
 /// If/when viewport-relative font sizes become a feature here, plumb the
 /// real viewport and `RemSize` through and call [`bevy::text::FontSize::eval`]
 /// directly.
 fn font_size_px(font: &TextFont) -> f32 {
-    font.font_size.eval(bevy::math::Vec2::ZERO, 16.0)
+    font.font_size.eval(bevy::math::Vec2::ZERO, bevy::text::RemSize::default())
 }
 
 // The font propogation / char width calculation is not ideal.
@@ -213,7 +213,7 @@ pub fn refresh_ui(
             .insert((font.clone(), line_height));
         let mut spans = vec![];
         let mut row_count = 0;
-        for (_, maybe_row) in q_viewport.iter_many(terminfo.viewport.iter()) {
+        for (_, maybe_row) in q_viewport.iter_many(terminfo.viewport.iter()).matched() {
             row_count += 1;
             let mut new_spans = if let Some(row) = maybe_row {
                 let line = c!(q_lines.get(row.line()));
@@ -250,7 +250,7 @@ pub fn refresh_ui(
 
 // todo: use input focus instead
 pub(crate) fn on_scroll(
-    trigger: On<Pointer<Scroll>>,
+    trigger: On<PointerScroll>,
     mut q: Query<(
         &LineHeight,
         &TextFont,

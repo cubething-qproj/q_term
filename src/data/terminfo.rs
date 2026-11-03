@@ -25,7 +25,7 @@ impl<'w, 's> TermInfoItem<'w, 's> {
         &self,
         q_lines: &'a Query<(Entity, &VtLine)>,
     ) -> impl Iterator<Item = (Entity, &'a VtLine)> {
-        q_lines.iter_many(self.line_target.iter())
+        q_lines.iter_many(self.line_target.iter()).matched()
     }
 
     #[inline(always)]
@@ -33,7 +33,7 @@ impl<'w, 's> TermInfoItem<'w, 's> {
         &self,
         q_viewport_rows: &'a Query<(Entity, &VtViewportRow)>,
     ) -> impl Iterator<Item = (Entity, &'a VtViewportRow)> {
-        q_viewport_rows.iter_many(self.viewport.iter())
+        q_viewport_rows.iter_many(self.viewport.iter()).matched()
     }
 
     pub fn rows<'a>(
@@ -43,7 +43,7 @@ impl<'w, 's> TermInfoItem<'w, 's> {
     ) -> impl Iterator<Item = (Entity, &'a VtRow)> {
         self.line_target.iter().flat_map(|line_id| {
             let target = r!(q_row_targets.get(line_id).ok());
-            q_rows.iter_many(target.entities()).collect::<Vec<_>>()
+            q_rows.iter_many(target.entities()).matched().collect::<Vec<_>>()
         })
     }
 

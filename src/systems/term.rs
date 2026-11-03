@@ -14,13 +14,14 @@ use crate::prelude::*;
 /// [`bevy::text::FontSize`] enum with `Px`/`Vw`/`Vh`/`VMin`/`VMax`/`Rem`
 /// variants. `q_term`'s scroll/resize math wants a single px value.
 ///
-/// q_term does not currently expose any UI for selecting a non-`Px` font
-/// size, so the practical behaviour is unchanged: `Px(v)` resolves to `v`,
-/// `Rem(s)` resolves to `s` times the default [`bevy::text::RemSize`] (20 px), and the
-/// viewport-relative variants resolve against an empty viewport (i.e. 0).
-/// If/when viewport-relative font sizes become a feature here, plumb the
-/// real viewport and `RemSize` through and call [`bevy::text::FontSize::eval`]
-/// directly.
+/// `Px(v)` resolves to `v`, `Rem(s)` resolves to `s` times the default
+/// [`bevy::text::RemSize`] (20 px), and the viewport-relative variants
+/// resolve against an empty viewport (i.e. 0). Since 0.20 the default
+/// `TextFont` size is `Rem(1.)`, so it still resolves to 0.19's `Px(20.)`
+/// default -- but only while the app leaves the `RemSize` resource at its
+/// default. If an app changes `RemSize`, or viewport-relative font sizes
+/// become a feature here, plumb the real viewport and `RemSize` through and
+/// call [`bevy::text::FontSize::eval`] directly.
 fn font_size_px(font: &TextFont) -> f32 {
     font.font_size.eval(bevy::math::Vec2::ZERO, bevy::text::RemSize::default())
 }

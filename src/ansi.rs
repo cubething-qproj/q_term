@@ -186,9 +186,11 @@ impl<'a> Grid<'a> {
         }
         let lines = q_lines
             .iter_many(terminfo.line_target.entities())
+            .matched()
             .map(|(line_id, line, row_target)| {
                 let rows = q_rows
                     .iter_many(row_target.entities())
+                    .matched()
                     .map(|(row_id, row)| GridRow {
                         row: MaybeRef::Borrowed(row_id, row),
                     })

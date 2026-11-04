@@ -1,7 +1,7 @@
 //! Regression test for the trackpad scroll bug fixed in
 //! `fix(scroll): accumulate fractional trackpad pixel deltas`.
 //!
-//! Trackpads emit many `MouseScrollUnit::Pixel` `Pointer<Scroll>`
+//! Trackpads emit many `MouseScrollUnit::Pixel` `PointerScroll`
 //! events per gesture, each with `|y|` well under one line of height.
 //! The original `on_scroll` converted to lines (`y / line_height`)
 //! and cast to `isize`, which truncated every event to `0` and
@@ -12,7 +12,7 @@
 //! emit a [`TermViewportMsg`] when a whole line has accumulated. A
 //! [`VtScrollSensitivity`] resource scales line vs. pixel deltas.
 //!
-//! These tests synthesise `Pointer<Scroll>` events directly via
+//! These tests synthesise `PointerScroll` events directly via
 //! `Commands::trigger` (no real window or picking backend needed --
 //! [`NormalizedRenderTarget::None`] is sufficient for the
 //! [`Location`] field) and assert that:
@@ -26,7 +26,7 @@
 use bevy::camera::NormalizedRenderTarget;
 use bevy::input::mouse::MouseScrollUnit;
 use bevy::picking::backend::HitData;
-use bevy::picking::events::{Pointer, Scroll};
+use bevy::picking::events::{Pointer, PointerScroll};
 use bevy::picking::pointer::{Location, PointerId};
 use bevy::text::LineHeight;
 
@@ -50,30 +50,30 @@ struct Term(Entity);
 #[derive(Resource)]
 struct Ui(Entity);
 
-/// Synthesise a `Pointer<Scroll>` and queue it through
-/// `Commands::trigger`. The `Pointer<E>` type is `#[derive(
+/// Synthesise a `PointerScroll` and queue it through
+/// `Commands::trigger`. The `PointerScroll` type is `#[derive(
 /// EntityEvent)]`, so the observer registered on `entity` (via
 /// `VtUi::on_add`) fires when commands flush. `NormalizedRenderTarget
 /// ::None` lets us construct a [`Location`] without a real window.
 fn fire_scroll(commands: &mut Commands, entity: Entity, unit: MouseScrollUnit, y: f32) {
-    commands.trigger(Pointer::<Scroll>::new(
-        PointerId::Mouse,
-        Location {
-            target: NormalizedRenderTarget::None {
-                width: 0,
-                height: 0,
-            },
-            position: Vec2::ZERO,
-        },
-        Scroll {
-            unit,
-            x: 0.0,
-            y,
-            hit: HitData::new(Entity::PLACEHOLDER, 0.0, None, None),
-            phase: bevy::input::touch::TouchPhase::Moved,
-        },
+    commands.trigger(PointerScroll {
         entity,
-    ));
+        pointer: Pointer::new(
+            PointerId::Mouse,
+            Location {
+                target: NormalizedRenderTarget::None {
+                    width: 0,
+                    height: 0,
+                },
+                position: Vec2::ZERO,
+            },
+        ),
+        unit,
+        x: 0.0,
+        y,
+        hit: HitData::new(Entity::PLACEHOLDER, 0.0, None, None),
+        phase: bevy::input::touch::TouchPhase::Moved,
+    });
 }
 
 /// Spawn a terminal pre-loaded with [`SEED_LINES`] lines of text and
